@@ -24,58 +24,60 @@ static glm::mat4 ogt_transform_to_glm(const ogt_vox_scene* scene, const ogt_vox_
 
 void VoxScene::load(const char* path, ComputeShader& cam_compute)
 {
-    apply_rotations_compute = ComputeShader("../shaders/apply_rotations.comp");
+    applyRotationsCompute = ComputeShader("../shaders/apply_rotations.comp");
 
-    const ogt_vox_scene* scene_ptr = load_vox_scene(path);
+    const ogt_vox_scene* voxScene = load_vox_scene(path);
 
-    model_data.resize(scene_ptr->num_instances);
+    modelData.resize(voxScene->num_instances);
 
     uint32_t total_voxel_index_count = 0;
 
-    model_array_size = scene_ptr->num_instances;
+    model_array_size = voxScene->num_instances;
     cam_compute.setInt("model_array_size", model_array_size);
 
-    for (size_t i = 0; i < scene_ptr->num_instances; i++)
+    for (size_t i = 0; i < voxScene->num_instances; i++)
     {
-        const ogt_vox_instance* curr_instance_ptr = &scene_ptr->instances[i];
-        if (curr_instance_ptr->hidden == true || scene_ptr->layers[curr_instance_ptr->layer_index].hidden == true) continue;
+        const ogt_vox_instance* currInstance = &voxScene->instances[i];
+        //if (currInstance->hidden == true || voxScene->layers[currInstance->layer_index].hidden == true) continue;
 
-        const ogt_vox_model* curr_model_ptr = scene_ptr->models[curr_instance_ptr->model_index];
+        const ogt_vox_model* currModel = voxScene->models[currInstance->model_index];
 
-        const glm::ivec3 curr_model_size = glm::ivec3(curr_model_ptr->size_x, curr_model_ptr->size_y, curr_model_ptr->size_z);
+        const ivec3 currModelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
 
-        ogt_vox_transform curr_instance_transform = ogt_vox_sample_instance_transform(curr_instance_ptr, 0, scene_ptr);
-        glm::vec3 curr_instance_offset(curr_instance_transform.m30, curr_instance_transform.m31, curr_instance_transform.m32);
+		ogt_vox_transform transform = ogt_vox_sample_instance_transform(currInstance, 0, voxScene);
+		vec4 instanceOffset = vec4(transform.m30, transform.m31, transform.m32, 0);
 
-        RotationData curr_rotation_data{};
-        ogt_vox_model curr_model_rotated = apply_rotations(scene_ptr, curr_rotation_data, i, apply_rotations_compute);
+		ivec3 rotatedModelSize;
+		float64 rotationDuration = 0.0;
+
+        ogt_vox_model currModelRotated = createRotatedModel(voxScene, i, applyRotationsCompute, rotatedModelSize, rotationDuration);
 
         // voxel model aata
-        VoxelModel curr_model_data;
-        curr_model_data.bit_offset = total_voxel_index_count; // in loop current total count is equal to current offset
-        curr_model_data.position_offset = curr_instance_offset;
-        curr_model_data.size = glm::ivec3(curr_rotation_data.rotated_size);
-        model_data[i] = curr_model_data;
+        InstanceData currModelData;
+		currModelData.bit_offset = total_voxel_index_count; // in loop current total count is equal to current offset
+		currModelData.position_offset = instanceOffset;
+		currModelData.size = rotatedModelSize;
+        modelData[i] = currModelData;
 
         // voxel uint8_t data
-        const uint8_t* curr_voxels_ptr = curr_model_rotated.voxel_data;
-        uint32_t curr_voxel_count = curr_model_size.x * curr_model_size.y * curr_model_size.z;
+        const uint8_t* currModelVoxels = currModelRotated.voxel_data;
+        uint32_t currVoxelCount = currModelSize.x * currModelSize.y * currModelSize.z;
 
-        voxel_data.insert(voxel_data.end(), curr_voxels_ptr, curr_voxels_ptr + curr_voxel_count);
+        voxelData.insert(voxelData.end(), currModelVoxels, currModelVoxels + currVoxelCount);
 
-        total_voxel_index_count += curr_voxel_count;
+        total_voxel_index_count += currVoxelCount;
     }
 
-    glCreateBuffers(1, &voxel_data_buffer);
-    glNamedBufferStorage(voxel_data_buffer, sizeof(uint8_t) * total_voxel_index_count, voxel_data.data(), GL_DYNAMIC_STORAGE_BIT);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, voxel_data_buffer);
+    glCreateBuffers(1, &voxelDataBuffer);
+    glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * total_voxel_index_count, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, voxelDataBuffer);
 
-    glCreateBuffers(1, &model_data_buffer);
-    glNamedBufferStorage(model_data_buffer, sizeof(VoxelModel) * model_data.size(), model_data.data(), GL_DYNAMIC_STORAGE_BIT);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, model_data_buffer);
+    glCreateBuffers(1, &modelDataBuffer);
+    glNamedBufferStorage(modelDataBuffer, sizeof(InstanceData) * modelData.size(), modelData.data(), GL_DYNAMIC_STORAGE_BIT);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, modelDataBuffer);
 
     // load palette into texture
-    ogt_vox_palette ogt_palette = scene_ptr->palette;
+    ogt_vox_palette ogt_palette = voxScene->palette;
 
     // texture generation with DSA
     glCreateTextures(GL_TEXTURE_2D, 1, &palette);
@@ -90,97 +92,124 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
     glTextureSubImage2D(palette, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, ogt_palette.color);
     glBindTextureUnit(4, palette);
 
-    ogt_vox_destroy_scene(scene_ptr);
+    ogt_vox_destroy_scene(voxScene);
 }
 
-ogt_vox_model VoxScene::apply_rotations(const ogt_vox_scene* scene, RotationData& rotation_data, uint32_t instance_idx, ComputeShader& compute)
+void VoxScene::cleanup()
 {
-    const ogt_vox_instance& instance = scene->instances[instance_idx];
-    const ogt_vox_model* model = scene->models[instance.model_index];
-    glm::mat4& transform_mat = ogt_transform_to_glm(scene, instance, model);
+	glDeleteBuffers(1, &modelDataBuffer);
+	glDeleteBuffers(1, &voxelDataBuffer);
+	glDeleteTextures(1, &palette);
+}
 
-    glm::vec3 corners[8] = {
-        {0, 0, 0},
-        {model->size_x - 1, 0, 0},
-        {0, model->size_y - 1, 0},
-        {0, 0, model->size_z - 1},
-        {model->size_x - 1, model->size_y - 1, 0},
-        {model->size_x - 1, 0, model->size_z - 1},
-        {0, model->size_y - 1, model->size_z - 1},
-        {model->size_x - 1, model->size_y - 1, model->size_z - 1},
-    };
+ogt_vox_model VoxScene::createRotatedModel(const ogt_vox_scene* scene, uint32 instanceIdx, ComputeShader& compute, ivec3& rotatedModelSize, float64& dispatchDuration)
+{
+	const ogt_vox_instance& instance = scene->instances[instanceIdx];
+	const ogt_vox_model* model = scene->models[instance.model_index];
+	mat4& transformMat = ogt_transform_to_glm(scene, instance, model);
 
-    // transform each corner of bouding box individually
-    glm::vec3 min_bounds(FLT_MAX);
-    glm::vec3 max_bounds(-FLT_MAX);
+	vec3 corners[8] = {
+		{0, 0, 0},
+		{model->size_x - 1, 0, 0},
+		{0, model->size_y - 1, 0},
+		{0, 0, model->size_z - 1},
+		{model->size_x - 1, model->size_y - 1, 0},
+		{model->size_x - 1, 0, model->size_z - 1},
+		{0, model->size_y - 1, model->size_z - 1},
+		{model->size_x - 1, model->size_y - 1, model->size_z - 1},
+	};
 
-    for (int i = 0; i < 8; ++i) {
-        glm::vec4 transformed_corner = transform_mat * glm::vec4(corners[i], 1.0f);
-        glm::vec3 floored_corner = glm::floor(glm::vec3(transformed_corner));
-        min_bounds = glm::min(min_bounds, floored_corner);
-        max_bounds = glm::max(max_bounds, floored_corner);
-    }
+	// transform each corner of bouding box individually
+	vec3 minBounds(FLT_MAX);
+	vec3 maxBounds(-FLT_MAX);
 
-    glm::ivec3 rotated_instance_size = glm::ivec3(max_bounds - min_bounds) + glm::ivec3(1); // +1 since voxel grids are inclusive
+	for (int i = 0; i < 8; ++i) {
+		vec4 transformedCorner = transformMat * vec4(corners[i], 1.0f);
+		vec3 flooredCorner = floor(vec3(transformedCorner));
+		minBounds = min(minBounds, flooredCorner);
+		maxBounds = max(maxBounds, flooredCorner);
+	}
 
-    // apply_rotations_compute
-    const uint8_t* voxel_data = model->voxel_data;
+	rotatedModelSize = ivec3(maxBounds - minBounds) + ivec3(1); // +1 since voxel grids are inclusive
 
-    glCreateBuffers(1, &instance_temp_ssbo);
-    glCreateBuffers(1, &rotated_temp_ssbo);
+	// apply_rotations_compute
+	const uint8* voxelData = model->voxel_data;
 
-    glNamedBufferStorage(instance_temp_ssbo, sizeof(uint8_t) * model->size_x * model->size_y * model->size_z, voxel_data, GL_DYNAMIC_STORAGE_BIT);
-    glNamedBufferStorage(rotated_temp_ssbo, sizeof(uint8_t) * model->size_x * model->size_y * model->size_z, nullptr, GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
-    glClearNamedBufferData(rotated_temp_ssbo, GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE, nullptr); // all values are initially 0. 0 = empty voxel
+	uint32 instanceTempSSBO, rotatedModelSSBO;
+	glCreateBuffers(1, &instanceTempSSBO);
+	glCreateBuffers(1, &rotatedModelSSBO);
 
-    rotation_data.instance_size = glm::vec4(model->size_x, model->size_y, model->size_z, 1.0);
-    rotation_data.rotated_size = glm::vec4(rotated_instance_size, 1.0);
-    rotation_data.min_bounds = glm::vec4(min_bounds, 1.0);
-    rotation_data.transform = transform_mat;
+	glNamedBufferStorage(instanceTempSSBO, sizeof(uint8_t) * model->size_x * model->size_y * model->size_z, voxelData, GL_DYNAMIC_STORAGE_BIT);
+	glNamedBufferStorage(rotatedModelSSBO, sizeof(uint8_t) * model->size_x * model->size_y * model->size_z, nullptr, GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+	glClearNamedBufferData(rotatedModelSSBO, GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE, nullptr); // all values are initially 0. 0 = empty voxel
 
-    glCreateBuffers(1, &rotation_data_temp_buffer);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, instanceTempSSBO);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, rotatedModelSSBO);
 
-    glNamedBufferStorage(rotation_data_temp_buffer, sizeof(RotationData), &rotation_data, GL_DYNAMIC_STORAGE_BIT);
+	RotationData rotationData{};
+	rotationData.instanceSize = vec4(model->size_x, model->size_y, model->size_z, 1.0);
+	rotationData.rotatedSize = vec4(rotatedModelSize, 1.0);
+	rotationData.minBounds = vec4(minBounds, 1.0);
+	rotationData.transform = transformMat;
 
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, instance_temp_ssbo);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, rotated_temp_ssbo);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, rotation_data_temp_buffer);
+	uint32 rotationDataUBO;
+	glCreateBuffers(1, &rotationDataUBO);
 
-    compute.use();
+	glNamedBufferStorage(rotationDataUBO, sizeof(RotationData), &rotationData, GL_DYNAMIC_STORAGE_BIT);
 
-    uint32 dispatchSizeX = (model->size_x + 15) / 16;
-    uint32 dispatchSizeY = (model->size_y + 15) / 16;
+	glBindBufferBase(GL_UNIFORM_BUFFER, 2, rotationDataUBO);
 
-    // apply_rotations_compute
-    glDispatchCompute(model->size_x, model->size_y, model->size_z);
+	compute.use();
 
-    glMemoryBarrier(
-        GL_SHADER_STORAGE_BARRIER_BIT
-    );
+	//uint32 rotationQuery;
+	//glGenQueries(1, &rotationQuery);
+	//glBeginQuery(GL_TIME_ELAPSED, rotationQuery);
 
-    ogt_vox_model rotated_model{
-        rotated_model.size_x = rotated_instance_size.x,
-        rotated_model.size_y = rotated_instance_size.y,
-        rotated_model.size_z = rotated_instance_size.z,
-        rotated_model.voxel_hash = 0
-    };
+	uint32 dispatchSizeX = (model->size_x + 15) / 16;
+	uint32 dispatchSizeY = (model->size_y + 15) / 16;
 
-    // read back model data
-    void* ptr = glMapNamedBuffer(rotated_temp_ssbo, GL_READ_ONLY);
-    if (ptr) {
-        const uint8_t* model_data = (const uint8_t*)ptr;
-        rotated_model.voxel_data = model_data;
-        glUnmapNamedBuffer(rotated_temp_ssbo);
-    }
-    else {
-        uint8_t null = 0;
-        const uint8_t* null_ptr = &null;
-        rotated_model.voxel_data = null_ptr;
-    }
+	// apply_rotations_compute
+	glDispatchCompute(dispatchSizeX, dispatchSizeY, model->size_z);
 
-    glDeleteBuffers(1, &instance_temp_ssbo);
-    glDeleteBuffers(1, &rotated_temp_ssbo);
-    glDeleteBuffers(1, &rotation_data_temp_buffer);
+	//glEndQuery(GL_TIME_ELAPSED);
 
-    return rotated_model;
+	glMemoryBarrier(
+		GL_SHADER_STORAGE_BARRIER_BIT
+	);
+
+	//int32 available = 0;
+	//while (!available) {
+	//	glGetQueryObjectiv(rotationQuery, GL_QUERY_RESULT_AVAILABLE, &available);
+	//}
+
+	//uint64 elapsedGPU;
+	//glGetQueryObjectui64v(rotationQuery, GL_QUERY_RESULT, &elapsedGPU);
+	//// dispatch time in us
+	//dispatchDuration = elapsedGPU / 1000;
+
+	//glDeleteQueries(1, &rotationQuery);
+	ogt_vox_model rotatedModel{
+	rotatedModel.size_x = rotationData.rotatedSize.x,
+	rotatedModel.size_y = rotationData.rotatedSize.y,
+	rotatedModel.size_z = rotationData.rotatedSize.z,
+	rotatedModel.voxel_hash = 0
+	};
+
+	 // read back model data
+	void* ptr = glMapNamedBuffer(rotatedModelSSBO, GL_READ_ONLY);
+	if (ptr) {
+		const uint8_t* model_data = (const uint8_t*)ptr;
+		rotatedModel.voxel_data = model_data;
+		glUnmapNamedBuffer(rotatedModelSSBO);
+	}
+	else {
+		uint8_t null = 0;
+		const uint8_t* null_ptr = &null;
+		rotatedModel.voxel_data = null_ptr;
+	}
+
+	glDeleteBuffers(1, &instanceTempSSBO);
+	glDeleteBuffers(1, &rotationDataUBO);
+
+	return rotatedModel;
 }

@@ -11,6 +11,9 @@ const float PITCH = -20.0f;
 
 const int MAX_STEPS = 2048;
 
+uint32 dispatchSizeX = 0;
+uint32 dispatchSizeY = 0;
+
 Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, bool* appMouseCaught, bool* appMouseMoved, uint32 screenSizeX, uint32 screenSizeY) : window(appWindow), deltaTime(appDelta), mouseCaught(appMouseCaught), mouseMoved(appMouseMoved), sizeX(screenSizeX), sizeY(screenSizeY)
 {
     // texture generation with DSA
@@ -29,6 +32,9 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
 
     screenShader = Shader("../shaders/screenShader.vert", "../shaders/screenShader.frag");
     renderCompute = ComputeShader("../shaders/renderShader.comp");
+
+    dispatchSizeX = (sizeX + 15) / 16;
+    dispatchSizeY = (sizeY + 15) / 16;
 
     renderCompute.use();
 
@@ -59,7 +65,7 @@ void Renderer::renderFrame()
     renderCompute.use();
     renderCompute.setInt("MAX_STEPS", MAX_STEPS);
     renderCompute.setVec3("light_direction", -0.45f, -0.7f, -0.2f);
-    glDispatchCompute((uint32)sizeX / 16, (uint32)sizeY / 16, 1);
+    glDispatchCompute(dispatchSizeX, dispatchSizeY, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     glBindTextureUnit(0, screenTexture);
