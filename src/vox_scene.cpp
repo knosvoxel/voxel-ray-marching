@@ -32,8 +32,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
     uint32_t total_voxel_index_count = 0;
 
-    model_array_size = voxScene->num_instances;
-    cam_compute.setInt("model_array_size", model_array_size);
+    modelArraySize = voxScene->num_instances;
+    cam_compute.setInt("model_array_size", modelArraySize);
 
     for (size_t i = 0; i < voxScene->num_instances; i++)
     {
@@ -41,8 +41,6 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
         //if (currInstance->hidden == true || voxScene->layers[currInstance->layer_index].hidden == true) continue;
 
         const ogt_vox_model* currModel = voxScene->models[currInstance->model_index];
-
-        const ivec3 currModelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
 
 		ogt_vox_transform transform = ogt_vox_sample_instance_transform(currInstance, 0, voxScene);
 		vec4 instanceOffset = vec4(transform.m30, transform.m31, transform.m32, 0);
@@ -61,7 +59,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
         // voxel uint8_t data
         const uint8_t* currModelVoxels = currModelRotated.voxel_data;
-        uint32_t currVoxelCount = currModelSize.x * currModelSize.y * currModelSize.z;
+		const ivec3 currModelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
+		uint32_t currVoxelCount = currModelSize.x * currModelSize.y * currModelSize.z;
 
         voxelData.insert(voxelData.end(), currModelVoxels, currModelVoxels + currVoxelCount);
 
