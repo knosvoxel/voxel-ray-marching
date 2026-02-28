@@ -30,6 +30,8 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     screenShader = Shader("../shaders/screenShader.vert", "../shaders/screenShader.frag");
     renderCompute = ComputeShader("../shaders/renderShader.comp");
 
+    renderCompute.use();
+
     // empty VAO
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
@@ -56,6 +58,7 @@ void Renderer::renderFrame()
 
     renderCompute.use();
     renderCompute.setInt("MAX_STEPS", MAX_STEPS);
+    renderCompute.setVec3("light_direction", -0.45f, -0.7f, -0.2f);
     glDispatchCompute((uint32)sizeX / 10, (uint32)sizeY / 10, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 

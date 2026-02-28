@@ -63,12 +63,8 @@ layout (binding = 4) uniform sampler2D palette;
 
 layout (location = 0) uniform float t; // Time
 layout (location = 1) uniform int model_array_size;
-//layout (location = 2) uniform bool renderer_enabled;
-//layout (location = 3) uniform int frame_count;
-//layout (location = 4) uniform int MAX_SAMPLES;
 layout (location = 2) uniform int MAX_STEPS;
-//layout (location = 6) uniform int MAX_BOUNCES;
-//layout (location = 7) uniform float gamma;
+layout (location = 3) uniform vec3 light_direction;
 
 float ray_tmax = INFINITY;
 float ray_tmin = 0.0;
@@ -343,13 +339,23 @@ vec3 ray_color(Ray r){
                 closest_so_far = voxel_rec.t;
                 rec = voxel_rec;
                 hit_anything = true;
-
             }
         }
     }
 
     if (hit_anything) {
-        return rec.color;
+        vec3 col = rec.color;
+        vec3 light_col = vec3(1.0f);
+
+        float ambientStrength = 0.5f;
+        vec3 ambient = ambientStrength * light_col;
+
+        vec3 norm = normalize(rec.normal);
+        vec3 lightDir = normalize(-light_direction);
+        float diff = max(dot(norm, lightDir), 0.0);
+        vec3 diffuse = diff * light_col;
+
+        return (ambient + diff) * col;
     }
         
     return vec3(0.2);
@@ -366,7 +372,6 @@ void main() {
     vec3 ray_direction = normalize(pixel_center - cam.pos);
     
     Ray r = Ray(cam.pos, ray_direction);
-
 
     pixel_color = ray_color(r);
  
