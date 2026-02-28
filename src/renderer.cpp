@@ -11,7 +11,7 @@ const float PITCH = -20.0f;
 
 const int MAX_STEPS = 2048;
 
-Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, bool* appMouseCaught, bool* appMouseMoved, uint32 screenSizeX, uint32 screenSizeY) : window(appWindow), deltaTime(appDelta), mouseCaught(appMouseCaught), sizeX(screenSizeX), sizeY(screenSizeY)
+Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, bool* appMouseCaught, bool* appMouseMoved, uint32 screenSizeX, uint32 screenSizeY) : window(appWindow), deltaTime(appDelta), mouseCaught(appMouseCaught), mouseMoved(appMouseMoved), sizeX(screenSizeX), sizeY(screenSizeY)
 {
     // texture generation with DSA
     glCreateTextures(GL_TEXTURE_2D, 1, &screenTexture);
@@ -25,25 +25,25 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     glBindImageTexture(0, screenTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
     cam = Camera(sizeX, sizeY, CAM_POS, VUP, FOV, YAW, PITCH);
+    cam.init();
 
-    screenShader = Shader("../shaders/shader.vert", "../shaders/shader.frag");
-    renderCompute = ComputeShader("../shaders/shader.comp");
+    screenShader = Shader("../shaders/screenShader.vert", "../shaders/screenShader.frag");
+    renderCompute = ComputeShader("../shaders/renderShader.comp");
 
     // empty VAO
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
 
-    VoxScene scene{};
     scene.load(path, renderCompute);
 }
 
 void Renderer::renderFrame()
 {
     // Input handling
-    if (mouseCaught) {
+    if (*mouseCaught) {
         cam.process_input(window, *deltaTime);
 
-        if (mouseMoved) {
+        if (*mouseMoved) {
             cam.process_mouse(xoffset, yoffset);
             xoffset = 0.0;
             yoffset = 0.0;
@@ -52,7 +52,7 @@ void Renderer::renderFrame()
         cam.update_data();
     }
 
-    mouseMoved = false;
+    *mouseMoved = false;
 
     renderCompute.use();
     renderCompute.setInt("MAX_STEPS", MAX_STEPS);

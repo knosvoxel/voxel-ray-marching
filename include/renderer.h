@@ -25,6 +25,7 @@ using namespace glm;
 
 class Renderer {
 public:
+	Renderer() : deltaTime(nullptr), mouseCaught(nullptr), mouseMoved(nullptr), window(nullptr) {};
 	Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, bool* appMouseCaught, bool* appMouseMoved, uint32 screenSizeX, uint32 screenSizeY);
 	void init();
 	void renderFrame();

@@ -38,13 +38,9 @@ public:
 	float32 movement_speed = 100.0;
 	float32 mouse_sensitivity = 0.2;
 
-	Camera() {
-		init();
-	}
+	Camera() = default;
 
-	Camera(uint32_t width, uint32_t height, glm::vec3 pos, glm::vec3 up, float32 fov, float32 yaw, float32 pitch) : image_width(width), image_height(height), fov(fov), pos(pos), world_up(up), yaw(yaw), pitch(pitch) {
-		init();
-	}
+	Camera(uint32_t width, uint32_t height, glm::vec3 pos, glm::vec3 up, float32 fov, float32 yaw, float32 pitch) : image_width(width), image_height(height), fov(fov), pos(pos), world_up(up), yaw(yaw), pitch(pitch) {};
 
 	~Camera() {};
 
@@ -52,6 +48,7 @@ public:
 	void process_keyboard(CameraMovement direction, float32 delta);
 	void process_mouse(float32 xoffset, float32 yoffset, bool constrain_pitch = true);
 
+	void init();
 	void update_data();
 	void cleanup();
 private:
@@ -70,6 +67,5 @@ private:
 	CamComputeData* cam_compute_ptr;
 	int32 currentBuffer = 0;
 
-	void init();
 	void update_vectors();
 };

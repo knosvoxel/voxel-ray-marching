@@ -29,7 +29,7 @@ void Camera::process_keyboard(CameraMovement direction, float32 delta) {
 		pos += right * velocity;
 }
 
-void Camera::process_mouse(float32 xoffset, float32 yoffset, bool constrain_pitch = true) {
+void Camera::process_mouse(float32 xoffset, float32 yoffset, bool constrain_pitch) {
 	xoffset *= mouse_sensitivity;
 	yoffset *= mouse_sensitivity;
 
