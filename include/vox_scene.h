@@ -11,6 +11,8 @@
 
 #include "ogt_wrapper.h"
 
+using namespace glm;
+
 typedef struct RotationData {
 	glm::vec4 instance_size;
 	glm::vec4 rotated_size;

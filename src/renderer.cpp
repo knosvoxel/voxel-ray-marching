@@ -59,7 +59,7 @@ void Renderer::renderFrame()
     renderCompute.use();
     renderCompute.setInt("MAX_STEPS", MAX_STEPS);
     renderCompute.setVec3("light_direction", -0.45f, -0.7f, -0.2f);
-    glDispatchCompute((uint32)sizeX / 10, (uint32)sizeY / 10, 1);
+    glDispatchCompute((uint32)sizeX / 16, (uint32)sizeY / 16, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     glBindTextureUnit(0, screenTexture);

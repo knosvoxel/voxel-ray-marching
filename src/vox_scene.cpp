@@ -148,6 +148,9 @@ ogt_vox_model VoxScene::apply_rotations(const ogt_vox_scene* scene, RotationData
 
     compute.use();
 
+    uint32 dispatchSizeX = (model->size_x + 15) / 16;
+    uint32 dispatchSizeY = (model->size_y + 15) / 16;
+
     // apply_rotations_compute
     glDispatchCompute(model->size_x, model->size_y, model->size_z);
 
