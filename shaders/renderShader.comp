@@ -71,54 +71,6 @@ float ray_tmin = 0.0;
 
 float seed = 42;
 
-// hash-based random function
-float random_float(vec2 st) {
-    return fract(tan(distance(st*PHI, st) * seed)*st.x);
-}
-
-// Returns random float in [0,1)
-float random_float(vec2 seed, float offset) {
-    return random_float(seed + vec2(offset, offset));
-}
-
-// Returns random float in [min,max)
-float random_float_range(vec2 seed, float offset, float minVal, float maxVal) {
-    return minVal + (maxVal - minVal) * random_float(seed, offset);
-}
-
-// Returns a random vec3 in [0,1)
-vec3 random_vec3(vec2 seed) {
-    return vec3(
-        random_float(seed, 0.0),
-        random_float(seed, 1.0),
-        random_float(seed, 2.0)
-    );
-}
-
-// Returns a random vec3 in [min,max)
-vec3 random_vec3_range(vec2 seed, float minVal, float maxVal) {
-    return mix(vec3(minVal), vec3(maxVal), random_vec3(seed));
-}
-
-vec3 random_unit_vector(vec2 seed) {
-    float u = random_float(seed + vec2(0.0, 1.0));
-    float v = random_float(seed + vec2(2.0, 3.0));
-
-    float theta = 2.0 * PI * u;
-    float z = 2.0 * v - 1.0;
-    float r = sqrt(1.0 - z*z);
-
-    return vec3(r * cos(theta), r * sin(theta), z);
-}
-
-vec3 random_on_hemisphere(vec2 seed, vec3 normal) {
-    vec3 on_unit_sphere = random_unit_vector(seed);
-    if (dot(on_unit_sphere, normal) > 0.0)
-        return on_unit_sphere;
-    else
-        return -on_unit_sphere;
-}
-
 
 vec3 point_at(Ray ray, float t){
     return ray.origin + t * ray.direction;
