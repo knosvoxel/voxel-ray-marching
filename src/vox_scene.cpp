@@ -54,7 +54,7 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		rotationDurationTotal += local.elapsedMilliseconds();
 		rotationComputeDurationTotal += rotationDuration;
 
-        // voxel model aata
+        // voxel model data
         InstanceData currModelData;
 		currModelData.bit_offset = totalVoxelCount; // in loop current total count is equal to current offset
 		currModelData.position_offset = instanceOffset;
@@ -66,7 +66,10 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		uint32_t currVoxelCount = currModelSize.x * currModelSize.y * currModelSize.z;
 
         voxelData.insert(voxelData.end(), currModelVoxelsRotated, currModelVoxelsRotated + currVoxelCount);
-		free(currModelVoxelsRotated);
+
+		instances.emplace_back();
+		instances.back().modelSize = currModelSize;
+		instances.back().voxelData = currModelVoxelsRotated;
 
 		totalVoxelCount += currVoxelCount;
     }
@@ -106,6 +109,11 @@ void VoxScene::cleanup()
 	glDeleteBuffers(1, &modelDataBuffer);
 	glDeleteBuffers(1, &voxelDataBuffer);
 	glDeleteTextures(1, &palette);
+
+	for (int i = 0; i < instances.size(); i++)
+	{
+		free(instances[i].voxelData);
+	}
 }
 
 uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize, float64& dispatchDuration)

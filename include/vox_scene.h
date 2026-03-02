@@ -28,6 +28,11 @@ typedef struct InstanceData {
 	uint32 padding;
 };
 
+typedef struct VoxInstance {
+	uint8* voxelData;
+	ivec3 modelSize;
+};
+
 class VoxScene {
 public:
 	VoxScene() {};
@@ -39,6 +44,8 @@ public:
 
 	std::vector<uint8> voxelData;
 	std::vector<InstanceData> modelData;
+
+	std::vector<VoxInstance> instances;
 
 	uint32_t modelArraySize;
 
