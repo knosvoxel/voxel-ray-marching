@@ -30,13 +30,16 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
     modelData.resize(voxScene->num_instances);
 
-    uint32_t total_voxel_index_count = 0;
+    uint32 totalVoxelCount = 0;
+	float64 rotationComputeDurationTotal = 0.0;
+	float64 rotationDurationTotal = 0;
 
     modelArraySize = voxScene->num_instances;
     cam_compute.setInt("model_array_size", modelArraySize);
 
     for (size_t i = 0; i < voxScene->num_instances; i++)
     {
+		Timer local;
         const ogt_vox_instance* currInstance = &voxScene->instances[i];
         //if (currInstance->hidden == true || voxScene->layers[currInstance->layer_index].hidden == true) continue;
 
@@ -48,11 +51,14 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		ivec3 rotatedModelSize;
 		float64 rotationDuration = 0.0;
 
+		local.start();
         ogt_vox_model currModelRotated = createRotatedModel(voxScene, i, applyRotationsCompute, rotatedModelSize, rotationDuration);
+		rotationDurationTotal += local.elapsedMilliseconds();
+		rotationComputeDurationTotal += rotationDuration;
 
         // voxel model aata
         InstanceData currModelData;
-		currModelData.bit_offset = total_voxel_index_count; // in loop current total count is equal to current offset
+		currModelData.bit_offset = totalVoxelCount; // in loop current total count is equal to current offset
 		currModelData.position_offset = instanceOffset;
 		currModelData.size = rotatedModelSize;
         modelData[i] = currModelData;
@@ -64,11 +70,14 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
         voxelData.insert(voxelData.end(), currModelVoxels, currModelVoxels + currVoxelCount);
 
-        total_voxel_index_count += currVoxelCount;
+		totalVoxelCount += currVoxelCount;
     }
 
+	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms" << std::endl;
+	std::cout << " Rotation compute duration total: " << rotationComputeDurationTotal / 1000.0 << "ms" << std::endl;
+
     glCreateBuffers(1, &voxelDataBuffer);
-    glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * total_voxel_index_count, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
+    glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * totalVoxelCount, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, voxelDataBuffer);
 
     glCreateBuffers(1, &modelDataBuffer);
@@ -160,9 +169,9 @@ ogt_vox_model VoxScene::createRotatedModel(const ogt_vox_scene* scene, uint32 in
 
 	compute.use();
 
-	//uint32 rotationQuery;
-	//glGenQueries(1, &rotationQuery);
-	//glBeginQuery(GL_TIME_ELAPSED, rotationQuery);
+	uint32 rotationQuery;
+	glGenQueries(1, &rotationQuery);
+	glBeginQuery(GL_TIME_ELAPSED, rotationQuery);
 
 	uint32 dispatchSizeX = (model->size_x + 15) / 16;
 	uint32 dispatchSizeY = (model->size_y + 15) / 16;
@@ -170,23 +179,23 @@ ogt_vox_model VoxScene::createRotatedModel(const ogt_vox_scene* scene, uint32 in
 	// apply_rotations_compute
 	glDispatchCompute(dispatchSizeX, dispatchSizeY, model->size_z);
 
-	//glEndQuery(GL_TIME_ELAPSED);
+	glEndQuery(GL_TIME_ELAPSED);
 
 	glMemoryBarrier(
 		GL_SHADER_STORAGE_BARRIER_BIT
 	);
 
-	//int32 available = 0;
-	//while (!available) {
-	//	glGetQueryObjectiv(rotationQuery, GL_QUERY_RESULT_AVAILABLE, &available);
-	//}
+	int32 available = 0;
+	while (!available) {
+		glGetQueryObjectiv(rotationQuery, GL_QUERY_RESULT_AVAILABLE, &available);
+	}
 
-	//uint64 elapsedGPU;
-	//glGetQueryObjectui64v(rotationQuery, GL_QUERY_RESULT, &elapsedGPU);
-	//// dispatch time in us
-	//dispatchDuration = elapsedGPU / 1000;
+	uint64 elapsedGPU;
+	glGetQueryObjectui64v(rotationQuery, GL_QUERY_RESULT, &elapsedGPU);
+	// dispatch time in us
+	dispatchDuration = elapsedGPU / 1000;
 
-	//glDeleteQueries(1, &rotationQuery);
+	glDeleteQueries(1, &rotationQuery);
 	ogt_vox_model rotatedModel{
 	rotatedModel.size_x = rotationData.rotatedSize.x,
 	rotatedModel.size_y = rotationData.rotatedSize.y,

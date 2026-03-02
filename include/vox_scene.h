@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ogt_wrapper.h"
+#include "timer.h"
 
 using namespace glm;
 
