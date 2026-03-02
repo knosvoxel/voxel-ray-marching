@@ -29,7 +29,6 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
     modelData.resize(voxScene->num_instances);
 
     uint32 totalVoxelCount = 0;
-	float64 rotationComputeDurationTotal = 0.0;
 	float64 rotationDurationTotal = 0;
 
     modelArraySize = voxScene->num_instances;
@@ -47,12 +46,10 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		vec4 instanceOffset = vec4(transform.m30, transform.m31, transform.m32, 0);
 
 		ivec3 rotatedModelSize;
-		float64 rotationDuration = 0.0;
 
 		local.start();
-        uint8* currModelVoxelsRotated = createRotatedModelCPU(voxScene, i, rotatedModelSize, rotationDuration);
+        uint8* currModelVoxelsRotated = createRotatedModelCPU(voxScene, i, rotatedModelSize);
 		rotationDurationTotal += local.elapsedMilliseconds();
-		rotationComputeDurationTotal += rotationDuration;
 
         // voxel model data
         InstanceData currModelData;
@@ -75,7 +72,6 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
     }
 
 	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms" << std::endl;
-	std::cout << " Rotation compute duration total: " << rotationComputeDurationTotal / 1000.0 << "ms" << std::endl;
 
     glCreateBuffers(1, &voxelDataBuffer);
     glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * totalVoxelCount, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
@@ -117,7 +113,7 @@ void VoxScene::cleanup()
 	}
 }
 
-uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize, float64& dispatchDuration)
+uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize)
 {
 	const ogt_vox_instance& instance = scene->instances[instanceIdx];
 	const ogt_vox_model* model = scene->models[instance.model_index];

@@ -50,7 +50,7 @@ public:
 	uint32_t modelArraySize;
 
 private:
-	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize, float64& dispatchDuration);
+	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize);
 
 	// buffers
 	uint32 voxelDataBuffer, modelDataBuffer;
