@@ -113,6 +113,7 @@ void VoxScene::cleanup()
 	for (int i = 0; i < instances.size(); i++)
 	{
 		free(instances[i].voxelData);
+		instances[i].voxelData = nullptr;
 	}
 }
 
