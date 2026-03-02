@@ -43,9 +43,7 @@ public:
 	uint32_t modelArraySize;
 
 private:
-	ogt_vox_model createRotatedModel(const ogt_vox_scene* scene, uint32 instanceIdx, ComputeShader& compute, ivec3& rotatedModelSize, float64& dispatchDuration);
-
-	ComputeShader applyRotationsCompute;
+	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize, float64& dispatchDuration);
 
 	// buffers
 	uint32 voxelDataBuffer, modelDataBuffer;
