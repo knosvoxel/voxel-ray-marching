@@ -46,7 +46,7 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
         const ogt_vox_model* currModel = voxScene->models[currInstance->model_index];
 
 		ogt_vox_transform transform = ogt_vox_sample_instance_transform(currInstance, 0, voxScene);
-		vec3 instanceOffset = vec3(transform.m30, transform.m31, transform.m32);
+		vec3 instanceOffset = vec3(transform.m31, transform.m32, transform.m30);
 
 		VoxInstance newInstance{};
 
@@ -153,6 +153,7 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 	}
 
 	rotatedModelSize = ivec3(maxBounds - minBounds) + ivec3(1);
+	rotatedModelSize = ivec3(rotatedModelSize.y, rotatedModelSize.z, rotatedModelSize.x); // swizzle size into correct coordinate space
 
 	size_t numVoxels = (size_t)rotatedModelSize.x * rotatedModelSize.y * rotatedModelSize.z;
 	uint8* outData = (uint8*)calloc(numVoxels, sizeof(uint8));
@@ -174,6 +175,7 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 				// Apply transform
 				vec4 rotatedPos = floor(transformMat * vec4((float32)x, (float32)y, (float32)z, 1.0f));
 				ivec3 finalPos = ivec3(vec3(rotatedPos.x, rotatedPos.y, rotatedPos.z) - minBounds);
+				finalPos = ivec3(finalPos.y, finalPos.z, finalPos.x);
 
 				// Bounds check
 				if (finalPos.x >= 0 && finalPos.x < rotatedModelSize.x &&
