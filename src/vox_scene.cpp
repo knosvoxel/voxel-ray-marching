@@ -26,13 +26,16 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 {
     const ogt_vox_scene* voxScene = load_vox_scene(path);
 
-    modelData.resize(voxScene->num_instances);
+    //modelData.resize(voxScene->num_instances);
 
-    uint32 totalVoxelCount = 0;
+    //uint32 totalVoxelCount = 0;
 	float64 rotationDurationTotal = 0;
 
-    modelArraySize = voxScene->num_instances;
-    cam_compute.setInt("model_array_size", modelArraySize);
+    //modelArraySize = voxScene->num_instances;
+    //cam_compute.setInt("model_array_size", modelArraySize);
+
+	//std::vector<TreeNode> data;
+	//std::vector<uint8> leafData;
 
     for (size_t i = 0; i < voxScene->num_instances; i++)
     {
@@ -43,43 +46,52 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
         const ogt_vox_model* currModel = voxScene->models[currInstance->model_index];
 
 		ogt_vox_transform transform = ogt_vox_sample_instance_transform(currInstance, 0, voxScene);
-		vec4 instanceOffset = vec4(transform.m30, transform.m31, transform.m32, 0);
+		vec3 instanceOffset = vec3(transform.m30, transform.m31, transform.m32);
+
+		VoxInstance newInstance{};
 
 		ivec3 rotatedModelSize;
-
 		local.start();
-        uint8* currModelVoxelsRotated = createRotatedModelCPU(voxScene, i, rotatedModelSize);
+        newInstance.rawVoxelData = createRotatedModelCPU(voxScene, i, rotatedModelSize);
 		rotationDurationTotal += local.elapsedMilliseconds();
 
+		newInstance.lowerBounds = instanceOffset - floor(vec3(rotatedModelSize.y, rotatedModelSize.z, rotatedModelSize.x) / 2.0f);
+		newInstance.upperBounds = newInstance.lowerBounds + vec3(currModel->size_y, currModel->size_z, currModel->size_x);
+
+		newInstance.nodes.resize(1);
+		newInstance.nodes[0] = generateInstanceTree();
+
+		instances.push_back(newInstance);
+
         // voxel model data
-        InstanceData currModelData;
-		currModelData.bit_offset = totalVoxelCount; // in loop current total count is equal to current offset
-		currModelData.position_offset = instanceOffset;
-		currModelData.size = rotatedModelSize;
-        modelData[i] = currModelData;
+  //      InstanceData currModelData;
+		//currModelData.bit_offset = totalVoxelCount; // in loop current total count is equal to current offset
+		//currModelData.position_offset = instanceOffset;
+		//currModelData.size = rotatedModelSize;
+  //      modelData[i] = currModelData;
 
-        // voxel uint8_t data
-		const ivec3 currModelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
-		uint32_t currVoxelCount = currModelSize.x * currModelSize.y * currModelSize.z;
+  //      // voxel uint8_t data
+		//const ivec3 currModelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
+		//uint32_t currVoxelCount = currModelSize.x * currModelSize.y * currModelSize.z;
 
-        voxelData.insert(voxelData.end(), currModelVoxelsRotated, currModelVoxelsRotated + currVoxelCount);
+  //      voxelData.insert(voxelData.end(), currModelVoxelsRotated, currModelVoxelsRotated + currVoxelCount);
 
-		instances.emplace_back();
-		instances.back().modelSize = currModelSize;
-		instances.back().voxelData = currModelVoxelsRotated;
+		//instances.emplace_back();
+		//instances.back().modelSize = currModelSize;
+		//instances.back().voxelData = currModelVoxelsRotated;
 
-		totalVoxelCount += currVoxelCount;
+		//totalVoxelCount += currVoxelCount;
     }
 
 	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms" << std::endl;
 
-    glCreateBuffers(1, &voxelDataBuffer);
-    glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * totalVoxelCount, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, voxelDataBuffer);
+    //glCreateBuffers(1, &voxelDataBuffer);
+    //glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * totalVoxelCount, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
+    //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, voxelDataBuffer);
 
-    glCreateBuffers(1, &modelDataBuffer);
-    glNamedBufferStorage(modelDataBuffer, sizeof(InstanceData) * modelData.size(), modelData.data(), GL_DYNAMIC_STORAGE_BIT);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, modelDataBuffer);
+    //glCreateBuffers(1, &modelDataBuffer);
+    //glNamedBufferStorage(modelDataBuffer, sizeof(InstanceData) * modelData.size(), modelData.data(), GL_DYNAMIC_STORAGE_BIT);
+    //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, modelDataBuffer);
 
     // load palette into texture
     ogt_vox_palette ogt_palette = voxScene->palette;
@@ -108,11 +120,12 @@ void VoxScene::cleanup()
 
 	for (int i = 0; i < instances.size(); i++)
 	{
-		free(instances[i].voxelData);
-		instances[i].voxelData = nullptr;
+		free(instances[i].rawVoxelData);
+		instances[i].rawVoxelData = nullptr;
 	}
 }
 
+// TODO: Swizzle coordinates
 uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize)
 {
 	const ogt_vox_instance& instance = scene->instances[instanceIdx];
@@ -177,4 +190,10 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 	auto endTime = std::chrono::high_resolution_clock::now();
 
 	return outData;
+}
+
+uint32 VoxScene::getClosestInstanceTreeLevel(vec3 modelSize)
+{
+
+	return uint32();
 }

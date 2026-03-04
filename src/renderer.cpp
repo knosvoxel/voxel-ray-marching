@@ -37,6 +37,8 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     dispatchSizeY = (sizeY + 15) / 16;
 
     renderCompute.use();
+    renderCompute.setInt("MAX_STEPS", MAX_STEPS);
+    renderCompute.setVec3("light_direction", -0.45f, -0.7f, -0.2f);
 
     // empty VAO
     glGenVertexArrays(1, &VAO);
@@ -63,8 +65,7 @@ void Renderer::renderFrame()
     *mouseMoved = false;
 
     renderCompute.use();
-    renderCompute.setInt("MAX_STEPS", MAX_STEPS);
-    renderCompute.setVec3("light_direction", -0.45f, -0.7f, -0.2f);
+
     glDispatchCompute(dispatchSizeX, dispatchSizeY, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
