@@ -58,6 +58,16 @@ typedef struct VoxInstance {
 
 	std::vector<TreeNode> nodes;
 	std::vector<uint8> leafs;
+
+	size_t getTotalSizeInByte() {
+		size_t totalBytes = sizeof(VoxInstance);
+		std::cout << "num Nodes: " << nodes.size() << std::endl;
+		totalBytes += nodes.size() * sizeof(TreeNode);
+		std::cout << "num Leafs: " << leafs.size() << std::endl;
+		totalBytes += leafs.size() * sizeof(uint8);
+
+		return totalBytes;
+	}
 };
 
 class VoxScene {

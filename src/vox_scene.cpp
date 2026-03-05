@@ -38,7 +38,9 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	//std::vector<uint8> leafData;
 	Timer timer;
 	timer.start();
-    for (size_t i = 0; i < voxScene->num_instances; i++)
+
+	//std::cout << voxScene->num_instances << std::endl;
+    for (int32 i = 0; i < voxScene->num_instances; i++)
     {
 		Timer local;
         const ogt_vox_instance* currInstance = &voxScene->instances[i];
@@ -64,6 +66,10 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
 		newInstance.nodes.resize(1);
 		newInstance.nodes[0] = generateInstanceTree(newInstance, biggestLevelSize, ivec3(0));
+
+		//std::cout << newInstance.leafs.size() << std::endl;
+
+		//std::cout << newInstance.getTotalSizeInByte() << std::endl;
 
 		instances.push_back(newInstance);
     }
@@ -200,10 +206,9 @@ TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, 
 
 	// Create leaf
 	if (levelSize == 4) {
-		node.setIsLeaf(true);
-		node.setChildPtr(instance.leafs.size());
-
 		bool anyVoxel = false;
+		uint64 currentMask = 0;
+		std::vector<uint8> tempLeafData;
 
 		for (int32 i = 0; i < 64; i++) {
 			ivec3 offset = ivec3(i % 4, (i / 4) % 4, i / 16);
@@ -216,27 +221,34 @@ TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, 
 			}
 
 			if (colorIdx != 0) {
-				node.childMask |= (1ull << i);
-				instance.leafs.push_back(colorIdx);
+				currentMask |= (1ull << i);
 				anyVoxel = true;
 			}
-			else {
-				instance.leafs.push_back(0);
-			}
+			tempLeafData.push_back(colorIdx);
 		}
 
-		return node;
+		if (anyVoxel) {
+			node.setIsLeaf(true);
+			node.childMask = currentMask;
+			node.setChildPtr(instance.leafs.size());
+			instance.leafs.insert(instance.leafs.end(), tempLeafData.begin(), tempLeafData.end());
+			return node;
+		}
+		else {
+			node.childMask = 0;
+			return node;
+		}
 	}
 
 	levelSize /= 4;
 
-	std::vector<TreeNode> children;
+	std::vector<TreeNode> children(64);
 
 	for (int32 i = 0; i < 64; i++) {
 		ivec3 childPos = ivec3(i % 4, (i / 4) % 4, i / 16);
 		TreeNode child = generateInstanceTree(instance, levelSize, pos + (childPos * levelSize));
 
-		if (child.childMask != 0 || child.isLeaf()) {
+		if (child.childMask != 0) {
 			node.childMask |= 1ull << i;
 			children.push_back(child);
 		}
