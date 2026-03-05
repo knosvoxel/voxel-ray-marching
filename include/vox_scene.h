@@ -28,20 +28,6 @@ typedef struct InstanceData {
 	uint32 padding;
 };
 
-typedef struct VoxInstance {
-	vec3 lowerBounds; // world transform
-	vec3 upperBounds;
-
-	uint8* rawVoxelData;
-
-	std::vector<TreeNode> nodes;
-	std::vector<uint8> leafs;
-
-	vec3 getModelSize() {
-		return upperBounds - lowerBounds;
-	}
-};
-
 typedef struct TreeNode {
 	uint32 header; // 1 bit: isLeaf | 31 bits: childPtr
 	uint64 childMask;
@@ -54,9 +40,24 @@ typedef struct TreeNode {
 		return header & 0x7FFFFFFF;
 	}
 
-	void set(bool isLeaf, uint32 ptr) {
-		header = (static_cast<uint32>(isLeaf) << 31) | (ptr & 0x7FFFFFFF);
+	void setIsLeaf(bool isLeaf) {
+		header = (static_cast<uint32>(isLeaf) << 31) | (header & 0x7FFFFFFF);
 	}
+
+	void setChildPtr(uint32 ptr) {
+		header = (header & 0x80000000) | (ptr & 0x7FFFFFFF);
+	}
+};
+
+typedef struct VoxInstance {
+	vec3 lowerBounds; // world transform
+	vec3 upperBounds;
+	vec3 size;
+
+	uint8* rawVoxelData;
+
+	std::vector<TreeNode> nodes;
+	std::vector<uint8> leafs;
 };
 
 class VoxScene {
@@ -78,15 +79,15 @@ public:
 private:
 	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize);
 
-	uint32 getClosestInstanceTreeLevel(vec3 modelSize);
-	uint32 getClosestRootTreeLevel(vec3 modelSize);
-	TreeNode generateInstanceTree(std::vector<TreeNode>& nodes, std::vector<uint8>& leafs, int32 level);
+	uint32 getClosestInstanceLevelSize(vec3 modelSize);
+	uint32 getClosestRootLevelSize(vec3 modelSize);
+	TreeNode generateInstanceTree(VoxInstance& instance, int32 levelSize, ivec3 pos = {});
 
 	// buffers
 	//uint32 voxelDataBuffer, modelDataBuffer;
 	uint32 palette;
 
-	std::vector<uint32> instanceTreeLevelSizes{ 256, 64, 16, 4 };
-	std::vector<uint32> rootTreeLevelSizes{ 2048, 512, 128, 32, 8 };
+	std::vector<uint32> instanceTreeLevelSizes{ 4, 16, 64, 256 };
+	std::vector<uint32> rootTreeLevelSizes{ 8, 32, 128, 512, 2048 };
 
 };

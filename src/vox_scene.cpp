@@ -36,7 +36,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
 	//std::vector<TreeNode> data;
 	//std::vector<uint8> leafData;
-
+	Timer timer;
+	timer.start();
     for (size_t i = 0; i < voxScene->num_instances; i++)
     {
 		Timer local;
@@ -57,41 +58,18 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
 		newInstance.lowerBounds = instanceOffset - floor(vec3(rotatedModelSize.y, rotatedModelSize.z, rotatedModelSize.x) / 2.0f);
 		newInstance.upperBounds = newInstance.lowerBounds + vec3(currModel->size_y, currModel->size_z, currModel->size_x);
+		newInstance.size = newInstance.upperBounds - newInstance.lowerBounds;
+
+		uint32 biggestLevelSize = getClosestInstanceLevelSize(newInstance.size);
 
 		newInstance.nodes.resize(1);
-		newInstance.nodes[0] = generateInstanceTree();
+		newInstance.nodes[0] = generateInstanceTree(newInstance, biggestLevelSize, ivec3(0));
 
 		instances.push_back(newInstance);
-
-        // voxel model data
-  //      InstanceData currModelData;
-		//currModelData.bit_offset = totalVoxelCount; // in loop current total count is equal to current offset
-		//currModelData.position_offset = instanceOffset;
-		//currModelData.size = rotatedModelSize;
-  //      modelData[i] = currModelData;
-
-  //      // voxel uint8_t data
-		//const ivec3 currModelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
-		//uint32_t currVoxelCount = currModelSize.x * currModelSize.y * currModelSize.z;
-
-  //      voxelData.insert(voxelData.end(), currModelVoxelsRotated, currModelVoxelsRotated + currVoxelCount);
-
-		//instances.emplace_back();
-		//instances.back().modelSize = currModelSize;
-		//instances.back().voxelData = currModelVoxelsRotated;
-
-		//totalVoxelCount += currVoxelCount;
     }
 
 	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms" << std::endl;
-
-    //glCreateBuffers(1, &voxelDataBuffer);
-    //glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * totalVoxelCount, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
-    //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, voxelDataBuffer);
-
-    //glCreateBuffers(1, &modelDataBuffer);
-    //glNamedBufferStorage(modelDataBuffer, sizeof(InstanceData) * modelData.size(), modelData.data(), GL_DYNAMIC_STORAGE_BIT);
-    //glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, modelDataBuffer);
+	std::cout << "Total instance load time: " << timer.elapsedSeconds() << "s" << std::endl;
 
     // load palette into texture
     ogt_vox_palette ogt_palette = voxScene->palette;
@@ -114,8 +92,6 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
 void VoxScene::cleanup()
 {
-	glDeleteBuffers(1, &modelDataBuffer);
-	glDeleteBuffers(1, &voxelDataBuffer);
 	glDeleteTextures(1, &palette);
 
 	for (int i = 0; i < instances.size(); i++)
@@ -194,8 +170,80 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 	return outData;
 }
 
-uint32 VoxScene::getClosestInstanceTreeLevel(vec3 modelSize)
+uint32 VoxScene::getClosestInstanceLevelSize(vec3 modelSize)
 {
+	float32 maxDimFloat = max(modelSize.x, modelSize.y);
+	maxDimFloat = max(maxDimFloat, modelSize.z);
 
+	uint32 maxDim = static_cast<uint32>(maxDimFloat);
+	uint32 correctLevel = 0;
+
+	for (uint32 level = 0; level < instanceTreeLevelSizes.size(); ++level)
+	{
+		uint32 levelSize = instanceTreeLevelSizes[level];
+		if (maxDim <= levelSize)
+			return levelSize;
+	}
+
+	assert(false && "Model size exceed expected maximum size.");
+	return -1;
+}
+
+uint32 VoxScene::getClosestRootLevelSize(vec3 modelSize)
+{
 	return uint32();
+}
+
+TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, ivec3 pos)
+{
+	TreeNode node;
+
+	// Create leaf
+	if (levelSize == 4) {
+		node.setIsLeaf(true);
+		node.setChildPtr(instance.leafs.size());
+
+		bool anyVoxel = false;
+
+		for (int32 i = 0; i < 64; i++) {
+			ivec3 offset = ivec3(i % 4, (i / 4) % 4, i / 16);
+			ivec3 globalPos = pos + offset;
+
+			uint8 colorIdx = 0;
+			if (globalPos.x < instance.size.x && globalPos.y < instance.size.y && globalPos.z < instance.size.z) {
+				uint32 srcIdx = globalPos.x + (globalPos.y * instance.size.x) + (globalPos.z * instance.size.x * instance.size.y);
+				colorIdx = instance.rawVoxelData[srcIdx];
+			}
+
+			if (colorIdx != 0) {
+				node.childMask |= (1ull << i);
+				instance.leafs.push_back(colorIdx);
+				anyVoxel = true;
+			}
+			else {
+				instance.leafs.push_back(0);
+			}
+		}
+
+		return node;
+	}
+
+	levelSize /= 4;
+
+	std::vector<TreeNode> children;
+
+	for (int32 i = 0; i < 64; i++) {
+		ivec3 childPos = ivec3(i % 4, (i / 4) % 4, i / 16);
+		TreeNode child = generateInstanceTree(instance, levelSize, pos + (childPos * levelSize));
+
+		if (child.childMask != 0 || child.isLeaf()) {
+			node.childMask |= 1ull << i;
+			children.push_back(child);
+		}
+	}
+
+	node.setChildPtr(instance.nodes.size());
+	instance.nodes.insert(instance.nodes.end(), children.begin(), children.end());
+
+	return node;
 }
