@@ -1,0 +1,86 @@
+#version 460 core
+#extension GL_NV_gpu_shader5 : enable
+
+struct Camera{
+    vec3 pos;
+    uint pad;
+    vec3 pixel00_loc;
+    uint pad2;
+    vec3 pixel_delta_u_vec;
+    uint pad3;
+    vec3 pixel_delta_v_vec;
+    uint pad4;
+};
+
+struct TreeNode{
+    uint packedData[3];
+};
+
+struct HitInfo{
+    bool miss;
+    vec3 color;
+};
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout (binding = 0, rgba32f) uniform image2D imgOutput;
+
+layout(binding = 1, std430) readonly buffer camera_ssbo {
+    Camera cam;
+};
+layout(binding = 2, std430) readonly buffer nodes_ssbo {
+    TreeNode nodes[];
+};
+layout(binding = 3, std430) readonly buffer leafs_ssbo {
+   uint8_t data[];  
+};
+
+layout (binding = 4) uniform sampler2D palette;
+
+// Node Helpers
+bool nodeIsLeaf(TreeNode n){
+    return (n.packedData[0] & 1u) != 0u;
+}
+
+uint getNodeChildPtr(TreeNode n){
+    return n.packedData[0] >> 1u;
+}
+
+uint64_t getNodeChildMask(TreeNode n){
+    return uint64_t(n.packedData[1]) | (uint64_t(n.packedData[2]) << 32);
+}
+
+void getPrimaryRay(ivec2 screenPos, out vec3 rayPos, out vec3 rayDir){
+    vec3 pixel_center = cam.pixel00_loc + (screenPos.x * cam.pixel_delta_u_vec) +
+    (screenPos.y * cam.pixel_delta_v_vec);
+
+    rayDir = normalize(pixel_center - cam.pos);
+    rayPos = cam.pos;
+}
+
+// Raycasting
+HitInfo castRay(vec3 origin, vec3 dir){
+    HitInfo hit;
+    hit.miss = true;
+
+    return hit;
+}
+
+void main() {
+    ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+
+    vec3 rayPos, rayDir;
+    getPrimaryRay(texelCoord, rayPos, rayDir);
+    
+    HitInfo hit = castRay(rayPos, rayDir);
+
+    vec3 albedo;
+
+    if(!hit.miss){
+        albedo = hit.color;
+    } else{
+        albedo = vec3(0.2);
+    }
+ 
+    imageStore(imgOutput, texelCoord, vec4(albedo, 1.0));
+
+}

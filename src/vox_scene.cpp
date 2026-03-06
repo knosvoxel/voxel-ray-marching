@@ -26,16 +26,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 {
     const ogt_vox_scene* voxScene = load_vox_scene(path);
 
-    //modelData.resize(voxScene->num_instances);
-
-    //uint32 totalVoxelCount = 0;
 	float64 rotationDurationTotal = 0;
 
-    //modelArraySize = voxScene->num_instances;
-    //cam_compute.setInt("model_array_size", modelArraySize);
-
-	//std::vector<TreeNode> data;
-	//std::vector<uint8> leafData;
 	Timer timer;
 	timer.start();
 
@@ -77,6 +69,14 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms" << std::endl;
 	std::cout << "Total instance load time: " << timer.elapsedSeconds() << "s" << std::endl;
 
+	glCreateBuffers(1, &treeNodesBuffer);
+	glNamedBufferStorage(treeNodesBuffer, sizeof(TreeNode) * instances[0].nodes.size(), instances[0].nodes.data(), GL_DYNAMIC_STORAGE_BIT);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, treeNodesBuffer);
+
+	glCreateBuffers(1, &leafsBuffer);
+	glNamedBufferStorage(leafsBuffer, sizeof(uint8) * instances[0].leafs.size(), instances[0].leafs.data(), GL_DYNAMIC_STORAGE_BIT);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, leafsBuffer);
+
     // load palette into texture
     ogt_vox_palette ogt_palette = voxScene->palette;
 
@@ -98,6 +98,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
 void VoxScene::cleanup()
 {
+	glDeleteBuffers(1, &treeNodesBuffer);
+	glDeleteBuffers(1, &leafsBuffer);
 	glDeleteTextures(1, &palette);
 
 	for (int i = 0; i < instances.size(); i++)

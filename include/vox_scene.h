@@ -95,6 +95,7 @@ private:
 
 	// buffers
 	//uint32 voxelDataBuffer, modelDataBuffer;
+	uint32 treeNodesBuffer, leafsBuffer;
 	uint32 palette;
 
 	std::vector<uint32> instanceTreeLevelSizes{ 4, 16, 64, 256 };

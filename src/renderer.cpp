@@ -31,7 +31,7 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     cam.init();
 
     screenShader = Shader("../shaders/screenShader.vert", "../shaders/screenShader.frag");
-    renderCompute = ComputeShader("../shaders/renderShader.comp");
+    renderCompute = ComputeShader("../shaders/raymarchShader.comp");
 
     dispatchSizeX = (sizeX + 15) / 16;
     dispatchSizeY = (sizeY + 15) / 16;
