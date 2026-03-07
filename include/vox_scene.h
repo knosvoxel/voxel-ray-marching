@@ -54,6 +54,7 @@ typedef struct VoxInstance {
 	vec3 upperBounds;
 	vec3 size;
 
+	uint32 biggestLevelSize;
 	uint8* rawVoxelData;
 
 	std::vector<TreeNode> nodes;
@@ -98,7 +99,6 @@ private:
 	uint32 treeNodesBuffer, leafsBuffer;
 	uint32 palette;
 
-	std::vector<uint32> instanceTreeLevelSizes{ 4, 16, 64, 256 };
 	std::vector<uint32> rootTreeLevelSizes{ 8, 32, 128, 512, 2048 };
 
 };

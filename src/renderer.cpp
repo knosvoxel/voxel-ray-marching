@@ -9,7 +9,7 @@ const float FOV = 45.0f;
 const float YAW = 225.0f;
 const float PITCH = -20.0f;
 
-const int MAX_STEPS = 2048;
+const int MAX_STEPS = 256;
 
 uint32 dispatchSizeX = 0;
 uint32 dispatchSizeY = 0;
@@ -45,6 +45,7 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     glBindVertexArray(VAO);
 
     scene.load(path, renderCompute);
+    renderCompute.setUInt("biggest_level_size", scene.instances[0].biggestLevelSize);
 }
 
 void Renderer::renderFrame()

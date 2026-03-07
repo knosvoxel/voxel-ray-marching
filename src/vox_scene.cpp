@@ -55,6 +55,7 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		newInstance.size = newInstance.upperBounds - newInstance.lowerBounds;
 
 		uint32 biggestLevelSize = getClosestInstanceLevelSize(newInstance.size);
+		newInstance.biggestLevelSize = biggestLevelSize;
 
 		newInstance.nodes.resize(1);
 		newInstance.nodes[0] = generateInstanceTree(newInstance, biggestLevelSize, ivec3(0));
@@ -178,6 +179,7 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 	return outData;
 }
 
+std::vector<uint32> instanceTreeLevelSizes{ 4, 16, 64, 256 };
 uint32 VoxScene::getClosestInstanceLevelSize(vec3 modelSize)
 {
 	float32 maxDimFloat = max(modelSize.x, modelSize.y);
@@ -252,7 +254,7 @@ TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, 
 
 		if (child.childMask != 0) {
 			node.childMask |= 1ull << i;
-			children.push_back(child);
+			children[i] = child;
 		}
 	}
 

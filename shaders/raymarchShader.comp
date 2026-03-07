@@ -19,6 +19,8 @@ struct TreeNode{
 struct HitInfo{
     bool miss;
     vec3 color;
+    vec3 pos;
+    vec3 normal;
 };
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -31,10 +33,14 @@ layout(binding = 2, std430) readonly buffer nodes_ssbo {
     TreeNode nodes[];
 };
 layout(binding = 3, std430) readonly buffer leafs_ssbo {
-   uint8_t data[];  
+   uint8_t leafData[];  
 };
 
 layout (binding = 4) uniform sampler2D palette;
+
+layout (location = 0) uniform int MAX_STEPS;
+layout (location = 1) uniform vec3 light_direction;
+layout (location = 2) uniform uint biggest_level_size;
 
 // Node Helpers
 bool nodeIsLeaf(TreeNode n){
@@ -49,6 +55,16 @@ uint64_t getNodeChildMask(TreeNode n){
     return uint64_t(n.packedData[1]) | (uint64_t(n.packedData[2]) << 32);
 }
 
+int getNodeCellIndex(vec3 pos, int scaleExp){
+    uvec3 cellPos = floatBitsToUint(pos) >> scaleExp & 3;
+    return int(cellPos.x + cellPos.y * 4 + cellPos.z * 16);
+}
+
+vec3 floorScale(vec3 pos, int scaleExp){
+    uint mask = ~0u << scaleExp;
+    return vec3(float(int(pos) & mask)); // erase bits lower than scale
+}
+
 void getPrimaryRay(ivec2 screenPos, out vec3 rayPos, out vec3 rayDir){
     vec3 pixel_center = cam.pixel00_loc + (screenPos.x * cam.pixel_delta_u_vec) +
     (screenPos.y * cam.pixel_delta_v_vec);
@@ -57,10 +73,126 @@ void getPrimaryRay(ivec2 screenPos, out vec3 rayPos, out vec3 rayDir){
     rayPos = cam.pos;
 }
 
+uint popcnt_var64(uint64_t mask, uint width){
+    uint himask = uint(mask);
+    uint count = 0;
+
+    if (width >= 32) {
+        count = bitCount(himask);
+        himask = uint(mask >> 32);
+    }
+
+    uint m = 1u << (width & 31u);
+    count += bitCount(himask & (m - 1u));
+    return count;
+}
+
+vec3 getMirroredPos(vec3 pos, vec3 dir, bool rangeCheck){
+    vec3 mirrored = uintBitsToFloat(floatBitsToUint(pos) ^ 0x7FFFFFu);
+
+    if (rangeCheck && any(lessThan(pos, vec3(1.0)) || greaterThanEqual(pos, vec3(2.0)))){
+        mirrored = 3.0 - pos;
+    }
+
+    return vec3(
+        dir.x > 0.0 ? mirrored.x : pos.x,
+        dir.y > 0.0 ? mirrored.y : pos.y,
+        dir.z > 0.0 ? mirrored.z : pos.z
+    );
+}
+
+bool isSolidVoxelAt(ivec3 voxelPos){
+    return voxelPos == ivec3(0.0);
+}
+
 // Raycasting
 HitInfo castRay(vec3 origin, vec3 dir){
+    vec3 pos = origin;
+    float scale = 1.0 / (1 << biggest_level_size);
+    origin = origin * scale + origin * scale + 1.0;
+
+    uint stack[5]; // one idx per level
+    int scaleExp = 21;
+    
+    uint nodeIdx = 0; // root 
+    TreeNode node = nodes[nodeIdx];
+
+    uint mirrorMask = 0;
+    if (dir.x > 0) mirrorMask |= 3 << 0;
+    if (dir.y > 0) mirrorMask |= 3 << 4;
+    if (dir.z > 0) mirrorMask |= 3 << 2;
+
+    origin = getMirroredPos(origin, dir, true);
+
+    vec3 invDir = 1.0 / -abs(dir);
+
+    vec3 sideDist;
+
+    for (int i = 0; i < MAX_STEPS; i++){
+        uint childIdx = getNodeCellIndex(pos, scaleExp) ^ mirrorMask;
+
+        // descend
+        while (!nodeIsLeaf(node) && (getNodeChildMask(node) >> childIdx & 1) != 0){
+            stack[scaleExp >> 1] = nodeIdx; // save ancestor
+
+            nodeIdx = getNodeChildPtr(node) + popcnt_var64(getNodeChildMask(node), childIdx);
+            node = nodes[nodeIdx];
+
+            scaleExp -= 2;
+            childIdx = getNodeCellIndex(pos, scaleExp) ^ mirrorMask;
+        }
+
+        if (nodeIsLeaf(node) && (getNodeChildMask(node) >> childIdx & 1) != 0) break;
+
+        // 2³ steps
+        int advScaleExp = scaleExp;
+        if ((getNodeChildMask(node) >> (childIdx & 42) & 0x00330033u) == 0) advScaleExp++;
+
+        vec3 cellMin = floorScale(pos, advScaleExp);
+        sideDist = (cellMin - origin) * invDir;
+        float tmax = min(min(sideDist.x, sideDist.y), sideDist.z);
+        ivec3 maskValue = ivec3((1 << advScaleExp) - 1);
+        ivec3 neighborMax = floatBitsToInt(cellMin) + ivec3(
+            sideDist.x == tmax ? -1 : maskValue.x,
+            sideDist.y == tmax ? -1 : maskValue.y,
+            sideDist.z == tmax ? -1 : maskValue.z
+        );
+        pos = min(origin - abs(dir) * tmax, intBitsToFloat(neighborMax));
+
+        uvec3 diffPos = floatBitsToUint(pos) ^ floatBitsToUint(cellMin);
+        int diffExp = findMSB((diffPos.x | diffPos.y | diffPos.z) & 0xFFAAAAAAu);
+
+        if (diffExp > scaleExp){
+            scaleExp = diffExp;
+
+            if (diffExp > 21) break;
+
+            nodeIdx = stack[scaleExp >> 1];
+            node = nodes[nodeIdx];
+        }
+    }
+
     HitInfo hit;
     hit.miss = true;
+
+    if (nodeIsLeaf(node) && scaleExp <= 21){
+        pos = getMirroredPos(pos, dir, false);
+        uint childIdx = getNodeCellIndex(pos, scaleExp);
+
+        uint colIdx = leafData[getNodeChildPtr(node) + popcnt_var64(getNodeChildMask(node), childIdx)];
+        hit.color = texture(palette, vec2(colIdx / 256.0, 0.5)).rgb;
+        hit.pos = pos;
+
+        float tmax = min(min(sideDist.x, sideDist.y), sideDist.z);
+        bvec3 sideMask = greaterThanEqual(vec3(tmax), sideDist);
+        hit.normal = vec3(
+            sideMask.x ? -sign(dir.x) : 0.0,
+            sideMask.y ? -sign(dir.y) : 0.0,
+            sideMask.z ? -sign(dir.z) : 0.0
+        );
+
+        hit.miss = false;
+    }
 
     return hit;
 }
@@ -76,7 +208,18 @@ void main() {
     vec3 albedo;
 
     if(!hit.miss){
-        albedo = hit.color;
+        vec3 col = hit.color;
+        vec3 light_col = vec3(1.0f);
+
+        float ambientStrength = 0.5f;
+        vec3 ambient = ambientStrength * light_col;
+
+        vec3 norm = normalize(hit.normal);
+        vec3 lightDir = normalize(-light_direction);
+        float diff = max(dot(norm, lightDir), 0.0);
+        vec3 diffuse = diff * light_col;
+
+        albedo = (ambient + diff) * col;
     } else{
         albedo = vec3(0.2);
     }
