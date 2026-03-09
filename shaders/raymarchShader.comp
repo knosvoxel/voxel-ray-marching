@@ -108,7 +108,7 @@ bool isSolidVoxelAt(ivec3 voxelPos){
 // Raycasting
 HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
     float scale = 1.0 / (1 << biggest_level_size);
-    vec3 origin = rayPos * scale + 1.0;
+    vec3 origin = worldOrigin * scale + rayPos * scale + 1.0;
 
     uint stack[11]; // one idx per level
     int scaleExp = 21;
@@ -131,6 +131,12 @@ HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
     float tMin = max(max(min(tEntry.x, tExit.x), min(tEntry.y, tExit.y)), min(tEntry.z, tExit.z));
     float tMax = min(min(max(tEntry.x, tExit.x), max(tEntry.y, tExit.y)), max(tEntry.z, tExit.z));
 
+    bvec3 entryMask = bvec3(
+        tEntry.x == tMin,
+        tEntry.y == tMin,
+        tEntry.z == tMin
+    );
+
     HitInfo hit;
     hit.miss = true;
 
@@ -139,7 +145,7 @@ HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
     vec3 pos = origin + max(tMin, 0.0) * (-abs(dir));
     pos = clamp(pos, 1.0, 1.99999);
 
-    vec3 sideDist;
+    vec3 sideDist = vec3(0.0);
 
     for (int i = 0; i < MAX_STEPS; i++){
         uint childIdx = getNodeCellIndex(pos, scaleExp) ^ mirrorMask;
@@ -194,7 +200,12 @@ HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
         hit.pos = (pos - 1.0 - worldOrigin * scale) * (1 << biggest_level_size);
 
         float tmax = min(min(sideDist.x, sideDist.y), sideDist.z);
-        bvec3 sideMask = greaterThanEqual(vec3(tmax), sideDist);
+        bvec3 sideMask;
+        if (sideDist == vec3(0.0)){
+            sideMask = entryMask;
+        } else {
+            sideMask = greaterThanEqual(vec3(tmax), sideDist);
+        }
         hit.normal = vec3(
             sideMask.x ? -sign(dir.x) : 0.0,
             sideMask.y ? -sign(dir.y) : 0.0,

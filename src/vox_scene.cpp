@@ -55,7 +55,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		newInstance.size = newInstance.upperBounds - newInstance.lowerBounds;
 
 		uint32 biggestLevelSize = getClosestInstanceLevelSize(newInstance.size);
-		newInstance.biggestLevelSize = biggestLevelSize;
+		std::cout << biggestLevelSize << std::endl;
+		newInstance.biggestLevelSize = (int)log2(float(biggestLevelSize));
 
 		newInstance.nodes.resize(1);
 		TreeNode root = generateInstanceTree(newInstance, biggestLevelSize, ivec3(0));
