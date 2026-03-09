@@ -30,22 +30,32 @@ typedef struct InstanceData {
 
 typedef struct TreeNode {
 	uint32 header; // 1 bit: isLeaf | 31 bits: childPtr
-	uint64 childMask;
+	uint32 childMaskLow;
+	uint32 childMaskHigh;
 
 	bool isLeaf() const {
-		return (header & 0x80000000) != 0;
+		return (header & 1u) != 0;  // bit 0
+	}
+
+	uint64 getChildMask() {
+		return (uint64)childMaskLow | ((uint64)childMaskHigh << 32);
+	}
+
+	void setChildMask(uint64 mask) {
+		childMaskLow = (uint32)mask;
+		childMaskHigh = (uint32)(mask >> 32);
 	}
 
 	uint32 getChildPtr() const {
-		return header & 0x7FFFFFFF;
+		return header >> 1;  // bits 1-31
 	}
 
-	void setIsLeaf(bool isLeaf) {
-		header = (static_cast<uint32>(isLeaf) << 31) | (header & 0x7FFFFFFF);
+	void setIsLeaf(bool leaf) {
+		header = (header & ~1u) | (static_cast<uint32>(leaf) & 1u);  // bit 0
 	}
 
 	void setChildPtr(uint32 ptr) {
-		header = (header & 0x80000000) | (ptr & 0x7FFFFFFF);
+		header = (header & 1u) | (ptr << 1);  // bits 1-31
 	}
 };
 

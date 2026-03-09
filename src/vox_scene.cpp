@@ -58,7 +58,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		newInstance.biggestLevelSize = biggestLevelSize;
 
 		newInstance.nodes.resize(1);
-		newInstance.nodes[0] = generateInstanceTree(newInstance, biggestLevelSize, ivec3(0));
+		TreeNode root = generateInstanceTree(newInstance, biggestLevelSize, ivec3(0));
+		newInstance.nodes[0] = root;
 
 		//std::cout << newInstance.leafs.size() << std::endl;
 
@@ -206,7 +207,7 @@ uint32 VoxScene::getClosestRootLevelSize(vec3 modelSize)
 
 TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, ivec3 pos)
 {
-	TreeNode node;
+	TreeNode node{};
 
 	// Create leaf
 	if (levelSize == 4) {
@@ -227,34 +228,36 @@ TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, 
 			if (colorIdx != 0) {
 				currentMask |= (1ull << i);
 				anyVoxel = true;
+				tempLeafData.push_back(colorIdx);
 			}
-			tempLeafData.push_back(colorIdx);
 		}
 
 		if (anyVoxel) {
 			node.setIsLeaf(true);
-			node.childMask = currentMask;
+			node.setChildMask(currentMask);
 			node.setChildPtr(instance.leafs.size());
 			instance.leafs.insert(instance.leafs.end(), tempLeafData.begin(), tempLeafData.end());
 			return node;
 		}
 		else {
-			node.childMask = 0;
+			node.setChildMask(0);
 			return node;
 		}
 	}
 
 	levelSize /= 4;
 
-	std::vector<TreeNode> children(64);
+	std::vector<TreeNode> children;
+	children.reserve(64);
 
 	for (int32 i = 0; i < 64; i++) {
 		ivec3 childPos = ivec3(i % 4, (i / 4) % 4, i / 16);
 		TreeNode child = generateInstanceTree(instance, levelSize, pos + (childPos * levelSize));
 
-		if (child.childMask != 0) {
-			node.childMask |= 1ull << i;
-			children[i] = child;
+		if (child.getChildMask() != 0) {
+			uint64 mask = node.getChildMask();
+			node.setChildMask(mask |= 1ull << i);
+			children.push_back(child);
 		}
 	}
 

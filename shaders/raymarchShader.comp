@@ -62,7 +62,7 @@ int getNodeCellIndex(vec3 pos, int scaleExp){
 
 vec3 floorScale(vec3 pos, int scaleExp){
     uint mask = ~0u << scaleExp;
-    return vec3(float(int(pos) & mask)); // erase bits lower than scale
+        return intBitsToFloat(ivec3(floatBitsToInt(pos)) & ivec3(mask)); // erase bits lower than scale
 }
 
 void getPrimaryRay(ivec2 screenPos, out vec3 rayPos, out vec3 rayDir){
@@ -107,11 +107,11 @@ bool isSolidVoxelAt(ivec3 voxelPos){
 
 // Raycasting
 HitInfo castRay(vec3 origin, vec3 dir){
-    vec3 pos = origin;
     float scale = 1.0 / (1 << biggest_level_size);
-    origin = origin * scale + origin * scale + 1.0;
+    origin = origin * scale + 1.0;
+    vec3 pos = origin;
 
-    uint stack[5]; // one idx per level
+    uint stack[11]; // one idx per level
     int scaleExp = 21;
     
     uint nodeIdx = 0; // root 
