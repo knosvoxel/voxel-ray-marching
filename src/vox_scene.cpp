@@ -216,7 +216,7 @@ TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, 
 		std::vector<uint8> tempLeafData;
 
 		for (int32 i = 0; i < 64; i++) {
-			ivec3 offset = ivec3(i % 4, (i / 4) % 4, i / 16);
+			ivec3 offset = ivec3(i % 4, i / 16, (i / 4) % 4);
 			ivec3 globalPos = pos + offset;
 
 			uint8 colorIdx = 0;
@@ -251,17 +251,17 @@ TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, 
 	children.reserve(64);
 
 	for (int32 i = 0; i < 64; i++) {
-		ivec3 childPos = ivec3(i % 4, (i / 4) % 4, i / 16);
+		ivec3 childPos = ivec3(i % 4, i / 16, (i / 4) % 4);
 		TreeNode child = generateInstanceTree(instance, levelSize, pos + (childPos * levelSize));
 
 		if (child.getChildMask() != 0) {
 			uint64 mask = node.getChildMask();
 			node.setChildMask(mask |= 1ull << i);
+			node.setChildPtr(instance.nodes.size());
 			children.push_back(child);
 		}
 	}
 
-	node.setChildPtr(instance.nodes.size());
 	instance.nodes.insert(instance.nodes.end(), children.begin(), children.end());
 
 	return node;

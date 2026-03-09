@@ -3,7 +3,7 @@
 const float NEAR = 0.1f;
 const float FAR = 10000.0f;
 
-const vec3 CAM_POS(60.0f, 200.0f, 60.0f);
+const vec3 CAM_POS(0.0f, 0.0f, 0.0f);
 const vec3 VUP(0.0f, 1.0f, 0.0f);
 const float FOV = 45.0f;
 const float YAW = 225.0f;

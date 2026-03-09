@@ -57,7 +57,7 @@ uint64_t getNodeChildMask(TreeNode n){
 
 int getNodeCellIndex(vec3 pos, int scaleExp){
     uvec3 cellPos = floatBitsToUint(pos) >> scaleExp & 3;
-    return int(cellPos.x + cellPos.y * 4 + cellPos.z * 16);
+    return int(cellPos.x + cellPos.z * 4 + cellPos.y * 16);
 }
 
 vec3 floorScale(vec3 pos, int scaleExp){
@@ -106,10 +106,9 @@ bool isSolidVoxelAt(ivec3 voxelPos){
 }
 
 // Raycasting
-HitInfo castRay(vec3 origin, vec3 dir){
+HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
     float scale = 1.0 / (1 << biggest_level_size);
-    origin = origin * scale + 1.0;
-    vec3 pos = origin;
+    vec3 origin = rayPos * scale + 1.0;
 
     uint stack[11]; // one idx per level
     int scaleExp = 21;
@@ -125,6 +124,20 @@ HitInfo castRay(vec3 origin, vec3 dir){
     origin = getMirroredPos(origin, dir, true);
 
     vec3 invDir = 1.0 / -abs(dir);
+//    vec3 pos = clamp(origin, 1.0f, 1.9999999f);
+
+    vec3 tEntry = (vec3(1.0) - origin) * invDir;
+    vec3 tExit = (vec3(2.0) - origin) * invDir;
+    float tMin = max(max(min(tEntry.x, tExit.x), min(tEntry.y, tExit.y)), min(tEntry.z, tExit.z));
+    float tMax = min(min(max(tEntry.x, tExit.x), max(tEntry.y, tExit.y)), max(tEntry.z, tExit.z));
+
+    HitInfo hit;
+    hit.miss = true;
+
+    if (tMin > tMax || tMax < 0.0) return hit;
+
+    vec3 pos = origin + max(tMin, 0.0) * (-abs(dir));
+    pos = clamp(pos, 1.0, 1.99999);
 
     vec3 sideDist;
 
@@ -146,7 +159,7 @@ HitInfo castRay(vec3 origin, vec3 dir){
 
         // 2³ steps
         int advScaleExp = scaleExp;
-        if ((getNodeChildMask(node) >> (childIdx & 42) & 0x00330033u) == 0) advScaleExp++;
+        if ((getNodeChildMask(node) >> (childIdx & 0x2A) & 0x00330033u) == 0u) advScaleExp++;
 
         vec3 cellMin = floorScale(pos, advScaleExp);
         sideDist = (cellMin - origin) * invDir;
@@ -172,16 +185,13 @@ HitInfo castRay(vec3 origin, vec3 dir){
         }
     }
 
-    HitInfo hit;
-    hit.miss = true;
-
     if (nodeIsLeaf(node) && scaleExp <= 21){
         pos = getMirroredPos(pos, dir, false);
         uint childIdx = getNodeCellIndex(pos, scaleExp);
 
         uint colIdx = leafData[getNodeChildPtr(node) + popcnt_var64(getNodeChildMask(node), childIdx)];
         hit.color = texture(palette, vec2(colIdx / 256.0, 0.5)).rgb;
-        hit.pos = pos;
+        hit.pos = (pos - 1.0 - worldOrigin * scale) * (1 << biggest_level_size);
 
         float tmax = min(min(sideDist.x, sideDist.y), sideDist.z);
         bvec3 sideMask = greaterThanEqual(vec3(tmax), sideDist);
@@ -203,7 +213,7 @@ void main() {
     vec3 rayPos, rayDir;
     getPrimaryRay(texelCoord, rayPos, rayDir);
     
-    HitInfo hit = castRay(rayPos, rayDir);
+    HitInfo hit = castRay(ivec3(0), rayPos, rayDir);
 
     vec3 albedo;
 

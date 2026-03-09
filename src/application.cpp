@@ -4,7 +4,7 @@ const uint32 WIDTH = 1600;
 const uint32 HEIGHT = 900;
 
 const char* WINDOW_NAME = "Voxel Ray Marching";
-const char* VOX_FILE_PATH = "../res/levels.vox";
+const char* VOX_FILE_PATH = "../res/castle.vox";
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 void mouseCallback(GLFWwindow* window, double xposIn, double yposIn);
