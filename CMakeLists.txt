@@ -13,7 +13,8 @@ set(SOURCES
 	"${SRC_DIR}/main.cpp" 
 	"${SRC_DIR}/application.cpp"
 	"${SRC_DIR}/camera.cpp" 
-	"${SRC_DIR}/vox_scene.cpp"
+    "${SRC_DIR}/vox_scene.cpp"
+	"${SRC_DIR}/vox_instance.cpp"
 	"${SRC_DIR}/renderer.cpp"
 )
 
@@ -24,16 +25,14 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(MSVC)
-    # Apply optimizations ONLY in Release, MinSizeRel, or RelWithDebInfo
     target_compile_options(${PROJECT_NAME} PRIVATE 
         $<$<NOT:$<CONFIG:Debug>>:/O2 /Oi /Ot /GT /GL /arch:AVX2>
+        /openmp:experimental
     )
-    # Link Time Code Generation also needs to be restricted to non-debug
     target_link_options(${PROJECT_NAME} PRIVATE 
         $<$<NOT:$<CONFIG:Debug>>:/LTCG>
     )
 else()
-    # GCC/Clang handle -O3 in debug usually, but it's still cleaner to scope it
     target_compile_options(${PROJECT_NAME} PRIVATE 
         $<$<NOT:$<CONFIG:Debug>>:-O3 -march=native -flto -ffast-math>
     )
@@ -68,8 +67,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE "${GLAD_DIR}/include")
 target_include_directories(${PROJECT_NAME} PRIVATE "${LIB_DIR}/glm")
 target_compile_definitions(${PROJECT_NAME} PRIVATE 
     GLM_FORCE_INLINE 
-    GLM_FORCE_SIMD_AVX2 # Or GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
-    GLM_FORCE_DEPTH_ZERO_TO_ONE # Useful for Vulkan/Modern GL
+    GLM_FORCE_SIMD_AVX2
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
 )
 
 # imgui
@@ -90,12 +89,14 @@ target_link_libraries(${PROJECT_NAME}
     "imgui" 
     "ogt_vox" 
     "stb_image"
-    ${OpenMP_CXX_LIBRARIES}  # Use the variable version for Plain signatures
+    ${OpenMP_CXX_LIBRARIES}
     ${CMAKE_DL_LIBS}
 )
 
 # OpenMP
-target_compile_options(${PROJECT_NAME} PRIVATE ${OpenMP_CXX_FLAGS})
+target_compile_options(${PROJECT_NAME} PRIVATE 
+    ${OpenMP_CXX_FLAGS}
+)
 
 # include folder
 target_include_directories(${PROJECT_NAME} PRIVATE "${INCL_DIR}")

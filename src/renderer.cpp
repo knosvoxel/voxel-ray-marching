@@ -45,7 +45,7 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     glBindVertexArray(VAO);
 
     scene.load(path, renderCompute);
-    renderCompute.setUInt("biggest_level_size", scene.instances[0].biggestLevelSize);
+    renderCompute.setUInt("biggest_level_size", (uint32)log2((float)scene.instances[0].biggestLevelSize));
 }
 
 void Renderer::renderFrame()

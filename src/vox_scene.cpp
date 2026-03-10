@@ -43,23 +43,16 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		ogt_vox_transform transform = ogt_vox_sample_instance_transform(currInstance, 0, voxScene);
 		vec3 instanceOffset = vec3(transform.m31, transform.m32, transform.m30);
 
-		VoxInstance newInstance{};
-
+		ivec3 modelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
 		ivec3 rotatedModelSize;
 		local.start();
-        newInstance.rawVoxelData = createRotatedModelCPU(voxScene, i, rotatedModelSize);
+		uint8* rawVoxelData = createRotatedModelCPU(voxScene, i, rotatedModelSize);
+		
+		VoxInstance newInstance{modelSize, rotatedModelSize, instanceOffset, rawVoxelData};
+
 		rotationDurationTotal += local.elapsedMilliseconds();
 
-		newInstance.lowerBounds = instanceOffset - floor(vec3(rotatedModelSize.y, rotatedModelSize.z, rotatedModelSize.x) / 2.0f);
-		newInstance.upperBounds = newInstance.lowerBounds + vec3(currModel->size_y, currModel->size_z, currModel->size_x);
-		newInstance.size = newInstance.upperBounds - newInstance.lowerBounds;
-
-		uint32 biggestLevelSize = getClosestInstanceLevelSize(newInstance.size);
-		std::cout << biggestLevelSize << std::endl;
-		newInstance.biggestLevelSize = (int)log2(float(biggestLevelSize));
-
-		newInstance.nodes.resize(1);
-		TreeNode root = generateInstanceTree(newInstance, biggestLevelSize, ivec3(0));
+		TreeNode root = generateTreeInstance(newInstance, newInstance.biggestLevelSize, ivec3(0));
 		newInstance.nodes[0] = root;
 
 		//std::cout << newInstance.leafs.size() << std::endl;
@@ -107,8 +100,7 @@ void VoxScene::cleanup()
 
 	for (int i = 0; i < instances.size(); i++)
 	{
-		free(instances[i].rawVoxelData);
-		instances[i].rawVoxelData = nullptr;
+		instances[i].cleanup();
 	}
 }
 
@@ -181,89 +173,7 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 	return outData;
 }
 
-std::vector<uint32> instanceTreeLevelSizes{ 4, 16, 64, 256 };
-uint32 VoxScene::getClosestInstanceLevelSize(vec3 modelSize)
-{
-	float32 maxDimFloat = max(modelSize.x, modelSize.y);
-	maxDimFloat = max(maxDimFloat, modelSize.z);
-
-	uint32 maxDim = static_cast<uint32>(maxDimFloat);
-	uint32 correctLevel = 0;
-
-	for (uint32 level = 0; level < instanceTreeLevelSizes.size(); ++level)
-	{
-		uint32 levelSize = instanceTreeLevelSizes[level];
-		if (maxDim <= levelSize)
-			return levelSize;
-	}
-
-	assert(false && "Model size exceed expected maximum size.");
-	return -1;
-}
-
 uint32 VoxScene::getClosestRootLevelSize(vec3 modelSize)
 {
 	return uint32();
-}
-
-TreeNode VoxScene::generateInstanceTree(VoxInstance& instance, int32 levelSize, ivec3 pos)
-{
-	TreeNode node{};
-
-	// Create leaf
-	if (levelSize == 4) {
-		bool anyVoxel = false;
-		uint64 currentMask = 0;
-		std::vector<uint8> tempLeafData;
-
-		for (int32 i = 0; i < 64; i++) {
-			ivec3 offset = ivec3(i % 4, i / 16, (i / 4) % 4);
-			ivec3 globalPos = pos + offset;
-
-			uint8 colorIdx = 0;
-			if (globalPos.x < instance.size.x && globalPos.y < instance.size.y && globalPos.z < instance.size.z) {
-				uint32 srcIdx = globalPos.x + (globalPos.y * instance.size.x) + (globalPos.z * instance.size.x * instance.size.y);
-				colorIdx = instance.rawVoxelData[srcIdx];
-			}
-
-			if (colorIdx != 0) {
-				currentMask |= (1ull << i);
-				anyVoxel = true;
-				tempLeafData.push_back(colorIdx);
-			}
-		}
-
-		if (anyVoxel) {
-			node.setIsLeaf(true);
-			node.setChildMask(currentMask);
-			node.setChildPtr(instance.leafs.size());
-			instance.leafs.insert(instance.leafs.end(), tempLeafData.begin(), tempLeafData.end());
-			return node;
-		}
-		else {
-			node.setChildMask(0);
-			return node;
-		}
-	}
-
-	levelSize /= 4;
-
-	std::vector<TreeNode> children;
-	children.reserve(64);
-
-	for (int32 i = 0; i < 64; i++) {
-		ivec3 childPos = ivec3(i % 4, i / 16, (i / 4) % 4);
-		TreeNode child = generateInstanceTree(instance, levelSize, pos + (childPos * levelSize));
-
-		if (child.getChildMask() != 0) {
-			uint64 mask = node.getChildMask();
-			node.setChildMask(mask |= 1ull << i);
-			node.setChildPtr(instance.nodes.size());
-			children.push_back(child);
-		}
-	}
-
-	instance.nodes.insert(instance.nodes.end(), children.begin(), children.end());
-
-	return node;
 }
