@@ -18,21 +18,23 @@ static TreeNode generateTreeInstance(VoxInstance& instance, int32 levelSize, ive
 {
 	TreeNode node{};
 
+	// check if any sector in region at position of current levelSize, otherwise fully skip subtree
+	if (levelSize >= 16) {
+		// positions in sector space
+		ivec3 sectorMin = pos / ivec3(32);
+		ivec3 sectorMax = (pos + ivec3(levelSize - 1)) / ivec3(32);
+
+		if (!instance.anySectorExits(sectorMin, sectorMax)) return node;
+	}
+
 	// Create leaf
 	// 4 x 4 x 4 voxel
 	if (levelSize == 4) {
-		ivec3 brickPos = pos / ivec3(8);
-		ivec3 localOrigin = pos % ivec3(8); // offset within brick (0 or 4 per axis)
-
-		if (brickPos.x >= instance.sizeInBricks.x ||
-			brickPos.y >= instance.sizeInBricks.y ||
-			brickPos.z >= instance.sizeInBricks.z)
-			return node;
-
-		int32 brickIdx = instance.getBrickIndex(brickPos.x, brickPos.y, brickPos.z);
-		Brick* brick = instance.bricks[brickIdx];
-
+		const Brick* brick = instance.getBrick(pos);
 		if (brick == nullptr) return node; // empty brick
+
+		// brick origin
+		ivec3 localOrigin = pos % ivec3(8);
 
 		// 4 x 4 x 4 brick subtile
 		uint8 temp[64];
@@ -87,6 +89,7 @@ VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, co
 	upperBounds = lowerBounds + vec3(modelSize.y, modelSize.z, modelSize.x);
 
 	size = upperBounds - lowerBounds;
+	sizeInSectors = (size + ivec3(31)) / ivec3(32);
 	sizeInBricks = (size + ivec3(7)) / ivec3(8);
 
 	biggestLevelSize = getClosestTreeLevelSize(size);
@@ -99,26 +102,77 @@ VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, co
 	nodes[0] = root;
 }
 
-const int32 VoxInstance::getBrickIndex(int32 bx, int32 by, int32 bz)
+const int32 VoxInstance::getPoolIndex(int32 bx, int32 by, int32 bz)
 {
 	return bx + bz * sizeInBricks.x + by * sizeInBricks.x * sizeInBricks.z;
 }
 
+const int32 VoxInstance::getSectorIndex(int32 sx, int32 sy, int32 sz)
+{
+	return sx + sz * sizeInSectors.x + sy * sizeInSectors.x * sizeInSectors.z;
+}
+
+const int32 VoxInstance::getLocalBrickIndex(int32 lx, int32 ly, int32 lz)
+{
+	return lx + lz * 4 + ly * 16;
+}
+
+const Brick* VoxInstance::getBrick(ivec3 voxelPos)
+{
+	ivec3 sectorPos = voxelPos / ivec3(32);
+	if (sectorPos.x >= sizeInSectors.x ||
+		sectorPos.y >= sizeInSectors.y ||
+		sectorPos.z >= sizeInSectors.z)
+		return nullptr;
+
+	Sector* sector = sectors[getSectorIndex(sectorPos.x, sectorPos.y, sectorPos.z)];
+	if (sector == nullptr) return nullptr;
+
+	// get brick of voxel within sector
+	// local between 0 and 3 in all three directions
+	// 
+	// sector has 32 x 32 x 32 voxels, brick has 8 x 8 x 8
+	// first get offset within sector, then fetch which brick is at that local position in the sector
+	ivec3 localBrickPos = (voxelPos % ivec3(32)) / ivec3(8);
+	return sector->bricks[getLocalBrickIndex(localBrickPos.x, localBrickPos.y, localBrickPos.z)];
+}
+
+const bool VoxInstance::anySectorExits(ivec3 sectorMin, ivec3 sectorMax)
+{
+	for (int32 sy = sectorMin.y; sy <= sectorMax.y; sy++)
+	{
+		for (int32 sz = sectorMin.z; sz <= sectorMax.z; sz++)
+		{
+			for (int32 sx = sectorMin.x; sx <= sectorMax.x; sx++)
+			{
+				if (
+					sx < sizeInSectors.x &&
+					sy < sizeInSectors.y &&
+					sz < sizeInSectors.z)
+				{
+					if (sectors[getSectorIndex(sx, sy, sz)] != nullptr)
+						return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
 void VoxInstance::generateBrickGrid()
 {
-	int32 numBricksX = sizeInBricks.x;
-	int32 numBricksY = sizeInBricks.y;
-	int32 numBricksZ = sizeInBricks.z;
-	int32 totalBricks = numBricksX * numBricksY * numBricksZ;
+	int32 totalSectors = sizeInSectors.x * sizeInSectors.y * sizeInSectors.z;
+	int32 totalBricks = sizeInBricks.x * sizeInBricks.y * sizeInBricks.z;
 
-	std::vector<std::unique_ptr<Brick>> bricksTemp(totalBricks);
+	sectors.assign(totalSectors, nullptr);
+	std::vector<std::unique_ptr<Brick>> brickPool(totalBricks);
 
 #pragma omp parallel for collapse(3) schedule(static)
-	for (int32 by = 0; by < numBricksY; by++)
+	for (int32 by = 0; by < sizeInBricks.y; by++)
 	{
-		for (int32 bz = 0; bz < numBricksZ; bz++) 
+		for (int32 bz = 0; bz < sizeInBricks.z; bz++)
 		{
-			for (int32 bx = 0; bx < numBricksX; bx++)
+			for (int32 bx = 0; bx < sizeInBricks.x; bx++)
 			{	
 				Brick local{};
 				bool anySet = false;
@@ -144,16 +198,32 @@ void VoxInstance::generateBrickGrid()
 				}
 
 				if (anySet) {
-					int32 idx = getBrickIndex(bx, by, bz);
-					bricksTemp[idx] = std::make_unique<Brick>(local);
+					int32 idx = getPoolIndex(bx, by, bz);
+					brickPool[idx] = std::make_unique<Brick>(local);
 				}
 			}
 		}
 	}
-	bricks.resize(totalBricks, nullptr);
-	for (int32 i = 0; i < totalBricks; i++)
+
+	// assign bricks to sectors
+	for (int32 by = 0; by < sizeInBricks.y; by++)
 	{
-		bricks[i] = bricksTemp[i].release();
+		for (int32 bz = 0; bz < sizeInBricks.z; bz++)
+		{
+			for (int32 bx = 0; bx < sizeInBricks.x; bx++)
+			{
+				int32 poolIdx = getPoolIndex(bx, by, bz);
+				if (!brickPool[poolIdx]) continue;
+
+				ivec3 sectorPos = ivec3(bx, by, bz) / ivec3(4);
+				int32 sectorIdx = getSectorIndex(sectorPos.x, sectorPos.y, sectorPos.z);
+				if (!sectors[sectorIdx]) sectors[sectorIdx] = new Sector();
+
+				ivec3 localPos = ivec3(bx, by, bz) % ivec3(4);
+				int32 localIdx = getLocalBrickIndex(localPos.x, localPos.y, localPos.z);
+				sectors[sectorIdx]->bricks[localIdx] = brickPool[poolIdx].release();
+			}	
+		}
 	}
 }
 
@@ -161,8 +231,11 @@ void VoxInstance::cleanup() {
 	free(rawVoxelData);
 	rawVoxelData = nullptr;
 
-	for (Brick* brick : bricks) {
-		delete brick;
+	for (Sector* sector : sectors) {
+		if (sector == nullptr) continue;
+		for (Brick* brick : sector->bricks)
+			delete brick;
+		delete sector;
 	}
 }
 

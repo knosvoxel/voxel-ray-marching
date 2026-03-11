@@ -31,16 +31,16 @@ typedef struct Brick {
 	}
 };
 
-//// 4 x 4 x 4 bricks
-//typedef struct Sector {
-//	Brick* bricks[64] = {};
-//
-//	bool isEmpty() const {
-//		for (Brick* brick : bricks)
-//			if (brick != nullptr) return false;
-//		return true;
-//	}
-//};
+// 4 x 4 x 4 bricks
+typedef struct Sector {
+	Brick* bricks[64] = {};
+
+	bool isEmpty() const {
+		for (Brick* brick : bricks)
+			if (brick != nullptr) return false;
+		return true;
+	}
+};
 
 typedef struct TreeNode {
 	uint32 header; // 1 bit: isLeaf | 31 bits: childPtr
@@ -79,12 +79,16 @@ struct VoxInstance {
 
 	static uint32 getClosestTreeLevelSize(ivec3 modelSize);
 
-	// get brick index based on brick's coordinates in "brick" space
-	const int32 getBrickIndex(int32 bx, int32 by, int32 bz);
+	// get brick index based on brick's coordinates in "brick" space(in the brick pool)
+	const int32 getPoolIndex(int32 bx, int32 by, int32 bz);
 
-	//const int32 getSectorIndex(int32 sx, int32 sy, int32 sz);
-	//const int32 getLocalBrickIndex(int32 lx, int32 ly, int32 lz);
-	//const Brick* getBrick(ivec3 voxelPos);
+	// sectors
+
+	const int32 getSectorIndex(int32 sx, int32 sy, int32 sz);
+	// local brick within sector
+	const int32 getLocalBrickIndex(int32 lx, int32 ly, int32 lz);
+	const Brick* getBrick(ivec3 voxelPos);
+	const bool anySectorExits(ivec3 sectorMin, ivec3 sectorMax);
 
 	// generate bricks from instance voxel data
 	void generateBrickGrid();
@@ -93,9 +97,8 @@ struct VoxInstance {
 
 	// voxel data 
 	ivec3 sizeInBricks;
-	//ivec3 sizeInSectors;
-	std::vector<Brick*> bricks; // sparse: nullptr = empty brick
-	//std::vector<Sector*> sectors;
+	ivec3 sizeInSectors;
+	std::vector<Sector*> sectors; // sparse: nullptr = empty
 	uint8* rawVoxelData;
 	
 	// instance dimensions and transform
