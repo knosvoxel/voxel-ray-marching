@@ -1,21 +1,5 @@
 #version 460 core
-
-#define PI 3.1415926535897932384626433832795
-#define PHI 1.61803398874989484820459
-#define INFINITY 1.0 / 0.0
-
-struct Ray{
-    vec3 origin;
-    vec3 direction;
-};
-
-struct HitRecord{
-    vec3 p;
-    vec3 normal;
-    vec3 color;
-    float t;
-    bool front_face;
-};
+#extension GL_NV_gpu_shader5 : enable
 
 struct Camera{
     vec3 pos;
@@ -28,20 +12,15 @@ struct Camera{
     uint pad4;
 };
 
-struct Sphere{
-    vec3 center;
-    float radius;
+struct TreeNode{
+    uint packedData[3];
 };
 
-struct VoxelData{
-    uint four_voxels;
-};
-
-struct VoxelModel{
-    vec3 position_offset;
-    uint bit_offset;
-    ivec3 size;
-    uint padding;
+struct HitInfo{
+    bool miss;
+    vec3 color;
+    vec3 pos;
+    vec3 normal;
 };
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -50,283 +29,222 @@ layout (binding = 0, rgba32f) uniform image2D imgOutput;
 layout(binding = 1, std430) readonly buffer camera_ssbo {
     Camera cam;
 };
-
-layout (binding = 2, std430) readonly buffer voxel_grid_ssbo {
-    VoxelData grid[];
+layout(binding = 2, std430) readonly buffer nodes_ssbo {
+    TreeNode nodes[];
 };
-
-layout (binding = 3, std430) readonly buffer voxel_model_ssbo {
-    VoxelModel models[];
+layout(binding = 3, std430) readonly buffer leafs_ssbo {
+   uint8_t leafData[];  
 };
 
 layout (binding = 4) uniform sampler2D palette;
 
-layout (location = 0) uniform float t; // Time
-layout (location = 1) uniform int model_array_size;
-layout (location = 2) uniform int MAX_STEPS;
-layout (location = 3) uniform vec3 light_direction;
+layout (location = 0) uniform int MAX_STEPS;
+layout (location = 1) uniform vec3 light_direction;
+layout (location = 2) uniform uint biggest_level_size;
 
-float ray_tmax = INFINITY;
-float ray_tmin = 0.0;
-
-float seed = 42;
-
-
-vec3 point_at(Ray ray, float t){
-    return ray.origin + t * ray.direction;
+// Node Helpers
+bool nodeIsLeaf(TreeNode n){
+    return (n.packedData[0] & 1u) != 0u;
 }
 
-void set_face_normal(inout HitRecord rec, const Ray r, vec3 outward_normal){
-    rec.front_face = dot(r.direction, outward_normal) < 0;
-    rec.normal = rec.front_face ? outward_normal : -outward_normal;
+uint getNodeChildPtr(TreeNode n){
+    return n.packedData[0] >> 1u;
 }
 
-float ray_aabb(const vec3 grid_min, const vec3 grid_max, const Ray r, float ray_tmin, float ray_tmax, out int entry_axis){
-    entry_axis = -1;
-    for (int axis = 0; axis < 3; ++axis){ // x y z axis
-        const float t1 = (grid_min[axis] - r.origin[axis]) / r.direction[axis];
-        const float t2 = (grid_max[axis] - r.origin[axis]) / r.direction[axis];
+uint64_t getNodeChildMask(TreeNode n){
+    return uint64_t(n.packedData[1]) | (uint64_t(n.packedData[2]) << 32);
+}
 
-        const float dmin = min(t1, t2);
-        const float dmax = max(t1, t2);
+int getNodeCellIndex(vec3 pos, int scaleExp){
+    uvec3 cellPos = floatBitsToUint(pos) >> scaleExp & 3;
+    return int(cellPos.x + cellPos.z * 4 + cellPos.y * 16);
+}
 
-        if (dmin > ray_tmin){
-            ray_tmin = dmin;
-            entry_axis = axis;
-        }
+vec3 floorScale(vec3 pos, int scaleExp){
+    uint mask = ~0u << scaleExp;
+        return intBitsToFloat(ivec3(floatBitsToInt(pos)) & ivec3(mask)); // erase bits lower than scale
+}
 
-        ray_tmax = min(dmax, ray_tmax);
+void getPrimaryRay(ivec2 screenPos, out vec3 rayPos, out vec3 rayDir){
+    vec3 pixel_center = cam.pixel00_loc + (screenPos.x * cam.pixel_delta_u_vec) +
+    (screenPos.y * cam.pixel_delta_v_vec);
 
-        if (ray_tmax < ray_tmin) return INFINITY;
+    rayDir = normalize(pixel_center - cam.pos);
+    rayPos = cam.pos;
+}
+
+uint popcnt_var64(uint64_t mask, uint width){
+    uint himask = uint(mask);
+    uint count = 0;
+
+    if (width >= 32) {
+        count = bitCount(himask);
+        himask = uint(mask >> 32);
     }
 
-    return ray_tmin;
+    uint m = 1u << (width & 31u);
+    count += bitCount(himask & (m - 1u));
+    return count;
 }
 
-bool find_nearest(Ray r, VoxelModel model, float ray_tmin, float ray_tmax, out HitRecord rec){
-    ivec3 model_size = model.size;
-    vec3 grid_min = model.position_offset.yzx - floor(model_size.yzx / 2.0);
-    vec3 grid_max = grid_min + model_size.yzx;
+vec3 getMirroredPos(vec3 pos, vec3 dir, bool rangeCheck){
+    vec3 mirrored = uintBitsToFloat(floatBitsToUint(pos) ^ 0x7FFFFFu);
+
+    if (rangeCheck && any(lessThan(pos, vec3(1.0)) || greaterThanEqual(pos, vec3(2.0)))){
+        mirrored = 3.0 - pos;
+    }
+
+    return vec3(
+        dir.x > 0.0 ? mirrored.x : pos.x,
+        dir.y > 0.0 ? mirrored.y : pos.y,
+        dir.z > 0.0 ? mirrored.z : pos.z
+    );
+}
+
+bool isSolidVoxelAt(ivec3 voxelPos){
+    return voxelPos == ivec3(0.0);
+}
+
+// Raycasting
+HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
+    float scale = 1.0 / (1 << biggest_level_size);
+    vec3 origin = worldOrigin * scale + rayPos * scale + 1.0;
+
+    uint stack[11]; // one idx per level
+    int scaleExp = 21;
     
-    int entry_axis;
-    const float entry_t = ray_aabb(grid_min, grid_max, r, ray_tmin, ray_tmax, entry_axis); // tmin of aabb
+    uint nodeIdx = 0; // root 
+    TreeNode node = nodes[nodeIdx];
 
-    if (entry_t == INFINITY) return false; // no hit
+    uint mirrorMask = 0;
+    if (dir.x > 0) mirrorMask |= 3 << 0;
+    if (dir.y > 0) mirrorMask |= 3 << 4;
+    if (dir.z > 0) mirrorMask |= 3 << 2;
 
-    vec3 voxels_per_unit;
-    voxels_per_unit.x = model_size.y / (grid_max.x - grid_min.x);
-    voxels_per_unit.y = model_size.z / (grid_max.y - grid_min.y);
-    voxels_per_unit.z = model_size.x / (grid_max.z - grid_min.z);
+    origin = getMirroredPos(origin, dir, true);
 
-    const vec3 entry_pos = ((r.origin + r.direction * (entry_t + 0.001)) - grid_min) * voxels_per_unit;
+    vec3 invDir = 1.0 / -abs(dir);
+//    vec3 pos = clamp(origin, 1.0f, 1.9999999f);
 
-    const vec3 step = sign(r.direction);
-    const vec3 delta = abs(1.0 / r.direction);
+    vec3 tEntry = (vec3(1.0) - origin) * invDir;
+    vec3 tExit = (vec3(2.0) - origin) * invDir;
+    float tMin = max(max(min(tEntry.x, tExit.x), min(tEntry.y, tExit.y)), min(tEntry.z, tExit.z));
+    float tMax = min(min(max(tEntry.x, tExit.x), max(tEntry.y, tExit.y)), max(tEntry.z, tExit.z));
 
-    // position clamped to model size
-    vec3 pos;
-    pos.x = clamp(floor(entry_pos.x), 0, model_size.y);
-    pos.y = clamp(floor(entry_pos.y), 0, model_size.z); 
-    pos.z = clamp(floor(entry_pos.z), 0, model_size.x); 
+    bvec3 entryMask = bvec3(
+        tEntry.x == tMin,
+        tEntry.y == tMin,
+        tEntry.z == tMin
+    );
 
-    vec3 tmax;
-    for (int i = 0; i < 3; i++) {
-        if (r.direction[i] > 0.0) {
-            tmax[i] = (floor(entry_pos[i]) + 1.0 - entry_pos[i]) * delta[i];
+    HitInfo hit;
+    hit.miss = true;
+
+    if (tMin > tMax || tMax < 0.0) return hit;
+
+    vec3 pos = origin + max(tMin, 0.0) * (-abs(dir));
+    pos = clamp(pos, 1.0, 1.99999);
+
+    vec3 sideDist = vec3(0.0);
+
+    for (int i = 0; i < MAX_STEPS; i++){
+        uint childIdx = getNodeCellIndex(pos, scaleExp) ^ mirrorMask;
+
+        // descend
+        while (!nodeIsLeaf(node) && (getNodeChildMask(node) >> childIdx & 1) != 0){
+            stack[scaleExp >> 1] = nodeIdx; // save ancestor
+
+            nodeIdx = getNodeChildPtr(node) + popcnt_var64(getNodeChildMask(node), childIdx);
+            node = nodes[nodeIdx];
+
+            scaleExp -= 2;
+            childIdx = getNodeCellIndex(pos, scaleExp) ^ mirrorMask;
+        }
+
+        if (nodeIsLeaf(node) && (getNodeChildMask(node) >> childIdx & 1) != 0) break;
+
+        // 2³ steps
+        int advScaleExp = scaleExp;
+        if ((getNodeChildMask(node) >> (childIdx & 0x2A) & 0x00330033u) == 0u) advScaleExp++;
+
+        vec3 cellMin = floorScale(pos, advScaleExp);
+        sideDist = (cellMin - origin) * invDir;
+        float tmax = min(min(sideDist.x, sideDist.y), sideDist.z);
+        ivec3 maskValue = ivec3((1 << advScaleExp) - 1);
+        ivec3 neighborMax = floatBitsToInt(cellMin) + ivec3(
+            sideDist.x == tmax ? -1 : maskValue.x,
+            sideDist.y == tmax ? -1 : maskValue.y,
+            sideDist.z == tmax ? -1 : maskValue.z
+        );
+        pos = min(origin - abs(dir) * tmax, intBitsToFloat(neighborMax));
+
+        uvec3 diffPos = floatBitsToUint(pos) ^ floatBitsToUint(cellMin);
+        int diffExp = findMSB((diffPos.x | diffPos.y | diffPos.z) & 0xFFAAAAAAu);
+
+        if (diffExp > scaleExp){
+            scaleExp = diffExp;
+
+            if (diffExp > 21) break;
+
+            nodeIdx = stack[scaleExp >> 1];
+            node = nodes[nodeIdx];
+        }
+    }
+
+    if (nodeIsLeaf(node) && scaleExp <= 21){
+        pos = getMirroredPos(pos, dir, false);
+        uint childIdx = getNodeCellIndex(pos, scaleExp);
+
+        uint colIdx = leafData[getNodeChildPtr(node) + popcnt_var64(getNodeChildMask(node), childIdx)];
+        hit.color = texture(palette, vec2(colIdx / 256.0, 0.5)).rgb;
+        hit.pos = (pos - 1.0 - worldOrigin * scale) * (1 << biggest_level_size);
+
+        float tmax = min(min(sideDist.x, sideDist.y), sideDist.z);
+        bvec3 sideMask;
+        if (sideDist == vec3(0.0)){
+            sideMask = entryMask;
         } else {
-            tmax[i] = (entry_pos[i] - floor(entry_pos[i])) * delta[i];
+            sideMask = greaterThanEqual(vec3(tmax), sideDist);
         }
+        hit.normal = vec3(
+            sideMask.x ? -sign(dir.x) : 0.0,
+            sideMask.y ? -sign(dir.y) : 0.0,
+            sideMask.z ? -sign(dir.z) : 0.0
+        );
+
+        hit.miss = false;
     }
 
-
-    int axis = 0;
-    for (int steps = 0; steps < MAX_STEPS; ++steps){
-         const int voxel_index = int(pos.y) * model_size.x * model_size.y + int(pos.x) * model_size.x + int(pos.z);
-
-        uint base_offset = uint(model.bit_offset);   // in bytes / uint8_t
-        uint word_index  = base_offset / 4; // uint32_t floored
-        uint byte_index  = base_offset % 4; // amount of uint8_t's missing from word_index
-
-        uint voxel_byte  = voxel_index + byte_index;
-        uint word        = (voxel_byte / 4) + word_index;
-        uint shift       = 8 * (voxel_byte % 4);
-
-        VoxelData voxel_data = grid[word];
-        uint col_idx = (voxel_data.four_voxels >> shift) & 255;
-
-
-        if (bool(col_idx)) {
-            if (steps == 0) {
-                rec.t = entry_t;
-                rec.p = r.origin + rec.t * r.direction;
-
-                // normal from AABB entry face
-                vec3 outward_normal = vec3(0.0);
-                outward_normal[entry_axis] = -sign(r.direction[entry_axis]);
-                set_face_normal(rec, r, outward_normal);
-            } else {
-                rec.t = entry_t + tmax[axis] - delta[axis];
-                rec.p = r.origin + rec.t * r.direction;
-
-                // normal from voxel boundary crossing
-                vec3 outward_normal = vec3(0.0);
-                outward_normal[axis] = -step[axis];
-                set_face_normal(rec, r, outward_normal);
-            }
-
-            rec.color = texture(palette, vec2(col_idx / 256.0, 0.5)).rgb;
-            return true;
-        }
-
-        if (tmax.x < tmax.y) {
-            if (tmax.x < tmax.z) {
-                pos.x += step.x;
-                if (pos.x < 0 || pos.x >= model_size.y) break;
-                axis = 0;
-                tmax.x += delta.x;
-            } else {
-                pos.z += step.z;
-                if (pos.z < 0 || pos.z >= model_size.x) break;
-                axis = 2;
-                tmax.z += delta.z;
-            }
-        } else {
-            if (tmax.y < tmax.z) {
-                pos.y += step.y;
-                if (pos.y < 0 || pos.y >= model_size.z) break;
-                axis = 1;
-                tmax.y += delta.y;
-            } else {
-                pos.z += step.z;
-                if (pos.z < 0 || pos.z >= model_size.x) break;
-                axis = 2;
-                tmax.z += delta.z;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool hit_sphere(const Sphere s, const Ray r, float ray_tmin, float ray_tmax, out HitRecord rec){
-    vec3 oc = s.center - r.origin;
-    float a = dot(r.direction, r.direction);
-    float h = dot(r.direction, oc);
-    float c = dot(oc, oc) - s.radius * s.radius;
-
-    float discriminant = h * h - a * c;
-    if (discriminant < 0){
-        return false;
-    }
-
-    float sqrtd = sqrt(discriminant);
-
-    float root = (h - sqrtd) / a;
-    // surrounds
-    if (root <= ray_tmin || ray_tmax <= root){
-        root = (h + sqrtd) / a;
-        // surrounds
-        if (root <= ray_tmin || ray_tmax <= root)
-            return false;
-    }
-
-    rec.t = root;
-    rec.p = point_at(r, rec.t);
-    vec3 outward_normal = (rec.p - s.center) / s.radius;
-    set_face_normal(rec, r, outward_normal);
-    return true;
-}
-
-bool hit_coordinate_spheres(Ray r, float ray_tmin, float ray_tmax, out vec3 color){
-    HitRecord rec;
-    float closest_so_far = ray_tmax;
-    bool hit_anything = false;
-
-    Sphere scene_center, sphere_x, sphere_y, sphere_z;
-    scene_center.center = vec3(0.0);
-    sphere_x.center = vec3(10.0, 0.0, 0.0);
-    sphere_y.center = vec3(0.0, 10.0, 0.0);
-    sphere_z.center = vec3(0.0, 0.0, 10.0);
-    scene_center.radius = 1.0;
-    sphere_x.radius = 1.0;
-    sphere_y.radius = 1.0;
-    sphere_z.radius = 1.0;
-
-    Sphere spheres[4] = {scene_center, sphere_x, sphere_y, sphere_z};
-
-    HitRecord sphere_rec;
-    for (int i = 0; i < 4; i++){
-        Sphere s = spheres[i];
-        bool hit = hit_sphere(s, r, ray_tmin, closest_so_far, sphere_rec);
-        if (hit){
-            hit_anything = true;
-            closest_so_far = sphere_rec.t;
-            rec = sphere_rec;
-            rec.color = s.center / 10;
-        }
-    }
-
-    if (hit_anything){
-        color = rec.color;
-        return true;
-    }
-
-    return false;
-}
-
-vec3 ray_color(Ray r){
-    // coordinate spheres
-    vec3 sphere_color;
-    if (hit_coordinate_spheres(r, ray_tmin, ray_tmax, sphere_color))
-        return sphere_color;
-
-    HitRecord rec;
-    bool hit_anything = false;
-    float closest_so_far = ray_tmax;
-
-    for (int i = 0; i < model_array_size; i++){
-        HitRecord voxel_rec;
-        if (find_nearest(r, models[i], ray_tmin, closest_so_far, voxel_rec)){
-            if (voxel_rec.t < closest_so_far){
-                closest_so_far = voxel_rec.t;
-                rec = voxel_rec;
-                hit_anything = true;
-            }
-        }
-    }
-
-    if (hit_anything) {
-        vec3 col = rec.color;
-        vec3 light_col = vec3(1.0f);
-
-        float ambientStrength = 0.5f;
-        vec3 ambient = ambientStrength * light_col;
-
-        vec3 norm = normalize(rec.normal);
-        vec3 lightDir = normalize(-light_direction);
-        float diff = max(dot(norm, lightDir), 0.0);
-        vec3 diffuse = diff * light_col;
-
-        return (ambient + diff) * col;
-    }
-        
-    return vec3(0.2);
+    return hit;
 }
 
 void main() {
     ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
 
-    vec3 pixel_color = vec3(0.0);
-
-    vec3 pixel_center = cam.pixel00_loc + (texelCoord.x * cam.pixel_delta_u_vec) +
-    (texelCoord.y * cam.pixel_delta_v_vec);
-
-    vec3 ray_direction = normalize(pixel_center - cam.pos);
+    vec3 rayPos, rayDir;
+    getPrimaryRay(texelCoord, rayPos, rayDir);
     
-    Ray r = Ray(cam.pos, ray_direction);
+    HitInfo hit = castRay(ivec3(0), rayPos, rayDir);
 
-    pixel_color = ray_color(r);
+    vec3 albedo;
+
+    if(!hit.miss){
+        vec3 col = hit.color;
+        vec3 light_col = vec3(1.0f);
+
+        float ambientStrength = 0.5f;
+        vec3 ambient = ambientStrength * light_col;
+
+        vec3 norm = normalize(hit.normal);
+        vec3 lightDir = normalize(-light_direction);
+        float diff = max(dot(norm, lightDir), 0.0);
+        vec3 diffuse = diff * light_col;
+
+        albedo = (ambient + diff) * col;
+    } else{
+        albedo = vec3(0.2);
+    }
  
-    imageStore(imgOutput, texelCoord, vec4(pixel_color, 1.0));
+    imageStore(imgOutput, texelCoord, vec4(albedo, 1.0));
 
 }

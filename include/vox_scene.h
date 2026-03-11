@@ -22,12 +22,12 @@ typedef struct RotationData {
 	mat4 transform;
 };
 
-typedef struct InstanceData {
-	vec3 position_offset;
-	uint32 bit_offset;
-	ivec3 size;
-	uint32 padding;
-};
+//typedef struct InstanceData {
+//	vec3 position_offset;
+//	uint32 bit_offset;
+//	ivec3 size;
+//	uint32 padding;
+//};
 
 class VoxScene {
 public:
@@ -40,6 +40,8 @@ public:
 
 	std::vector<VoxInstance> instances;
 
+	MeasurementData measurements;
+
 private:
 	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize);
 
@@ -51,5 +53,4 @@ private:
 	uint32 palette;
 
 	std::vector<uint32> rootTreeLevelSizes{ 8, 32, 128, 512, 2048 };
-
 };

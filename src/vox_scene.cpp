@@ -31,7 +31,6 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	Timer timer;
 	timer.start();
 
-	//std::cout << voxScene->num_instances << std::endl;
     for (int32 i = 0; i < voxScene->num_instances; i++)
     {
 		Timer local;
@@ -47,10 +46,11 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		ivec3 rotatedModelSize;
 		local.start();
 		uint8* rawVoxelData = createRotatedModelCPU(voxScene, i, rotatedModelSize);
+		local.stop();
 		rotationDurationTotal += local.elapsedMilliseconds();
-
-		VoxInstance newInstance{modelSize, rotatedModelSize, instanceOffset, rawVoxelData};
-
+		local.start();
+		VoxInstance newInstance{modelSize, rotatedModelSize, instanceOffset, rawVoxelData, measurements};
+		newInstance.posInArray = i;
 		instances.push_back(newInstance);
     }
 

@@ -1,7 +1,7 @@
 #include "vox_instance.h"
 
 // Left-pack data according to mask. Folling bytes are undefined
-void LeftPack(uint8 data[64], uint64 mask) {
+void leftPack(uint8 data[64], uint64 mask) {
 #if SIMD_AVX512
 	_mm512_storeu_epi8(data, _mm512_maskz_compress_epi8(mask, _mm512_loadu_epi8(data)));
 	return;
@@ -52,7 +52,7 @@ static TreeNode generateTreeInstance(VoxInstance& instance, int32 levelSize, ive
 		if (mask == 0) return node; // no voxels in subtile
 
 		// pack subtile voxel data to the left
-		LeftPack(temp, mask);
+		leftPack(temp, mask);
 
 		node.setIsLeaf(true);
 		node.setChildMask(mask);
@@ -83,7 +83,7 @@ static TreeNode generateTreeInstance(VoxInstance& instance, int32 levelSize, ive
 	return node;
 }
 
-VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData) : rawVoxelData(voxelData)
+VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData, MeasurementData& measurements) : rawVoxelData(voxelData)
 {
 	lowerBounds = worldOffset - floor(vec3(rotatedModelSize.y, rotatedModelSize.z, rotatedModelSize.x) / 2.0f);
 	upperBounds = lowerBounds + vec3(modelSize.y, modelSize.z, modelSize.x);

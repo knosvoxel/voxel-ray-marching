@@ -80,8 +80,6 @@ void Application::initOpenGL()
         exit(-1);
     }
 
-
-
     //// configure global opengl state
     //// -------------------------------------------
     //glEnable(GL_DEBUG_OUTPUT);
