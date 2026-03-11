@@ -47,17 +47,9 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		ivec3 rotatedModelSize;
 		local.start();
 		uint8* rawVoxelData = createRotatedModelCPU(voxScene, i, rotatedModelSize);
-		
-		VoxInstance newInstance{modelSize, rotatedModelSize, instanceOffset, rawVoxelData};
-
 		rotationDurationTotal += local.elapsedMilliseconds();
 
-		TreeNode root = generateTreeInstance(newInstance, newInstance.biggestLevelSize, ivec3(0));
-		newInstance.nodes[0] = root;
-
-		//std::cout << newInstance.leafs.size() << std::endl;
-
-		//std::cout << newInstance.getTotalSizeInByte() << std::endl;
+		VoxInstance newInstance{modelSize, rotatedModelSize, instanceOffset, rawVoxelData};
 
 		instances.push_back(newInstance);
     }

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <vector>
+#include <memory>
+#include <bit>
 
 #include "glm/glm.hpp"
 
@@ -12,7 +14,8 @@ typedef struct Brick {
 	static constexpr int32 numVoxels = sizeXZ * sizeXZ * sizeY; // 512
 	uint8 data[numVoxels] = {};
 
-	// color index getter: x + z * 8 + y * 64 (XZY order)
+	// index getter to fetch a brick's voxel at position
+	// x + z * 8 + y * 64 (XZY order)
 	static int32 getIndex(int32 x, int32 y, int32 z) {
 		return (x & 7) | ((z & 7) << 3) | ((y & 7) << 6);
 	}
@@ -27,6 +30,17 @@ typedef struct Brick {
 		return mask;
 	}
 };
+
+//// 4 x 4 x 4 bricks
+//typedef struct Sector {
+//	Brick* bricks[64] = {};
+//
+//	bool isEmpty() const {
+//		for (Brick* brick : bricks)
+//			if (brick != nullptr) return false;
+//		return true;
+//	}
+//};
 
 typedef struct TreeNode {
 	uint32 header; // 1 bit: isLeaf | 31 bits: childPtr
@@ -65,82 +79,34 @@ struct VoxInstance {
 
 	static uint32 getClosestTreeLevelSize(ivec3 modelSize);
 
+	// get brick index based on brick's coordinates in "brick" space
+	const int32 getBrickIndex(int32 bx, int32 by, int32 bz);
+
+	//const int32 getSectorIndex(int32 sx, int32 sy, int32 sz);
+	//const int32 getLocalBrickIndex(int32 lx, int32 ly, int32 lz);
+	//const Brick* getBrick(ivec3 voxelPos);
+
+	// generate bricks from instance voxel data
+	void generateBrickGrid();
+
 	void cleanup();
 
+	// voxel data 
 	ivec3 sizeInBricks;
+	//ivec3 sizeInSectors;
 	std::vector<Brick*> bricks; // sparse: nullptr = empty brick
-
+	//std::vector<Sector*> sectors;
+	uint8* rawVoxelData;
+	
+	// instance dimensions and transform
 	vec3 lowerBounds; // world transform
 	vec3 upperBounds;
 
 	ivec3 size;
 
+	// tree data
 	uint32 biggestLevelSize;
-	uint8* rawVoxelData;
 
 	std::vector<TreeNode> nodes;
 	std::vector<uint8> leafs;
 };
-
-static TreeNode generateTreeInstance(VoxInstance& instance, int32 levelSize, ivec3 pos = {})
-{
-	TreeNode node{};
-
-	// Create leaf
-	if (levelSize == 4) {
-		bool anyVoxel = false;
-		uint64 currentMask = 0;
-		std::vector<uint8> tempLeafData;
-
-		//#pragma omp for schedule(dynamic)
-		for (int32 i = 0; i < 64; i++) {
-			ivec3 offset = ivec3(i % 4, i / 16, (i / 4) % 4);
-			ivec3 globalPos = pos + offset;
-
-			uint8 colorIdx = 0;
-			if (globalPos.x < instance.size.x && globalPos.y < instance.size.y && globalPos.z < instance.size.z) {
-				uint32 srcIdx = globalPos.x + (globalPos.y * instance.size.x) + (globalPos.z * instance.size.x * instance.size.y);
-				colorIdx = instance.rawVoxelData[srcIdx];
-			}
-
-			if (colorIdx != 0) {
-				currentMask |= (1ull << i);
-				anyVoxel = true;
-				tempLeafData.push_back(colorIdx);
-			}
-		}
-
-		if (anyVoxel) {
-			node.setIsLeaf(true);
-			node.setChildMask(currentMask);
-			node.setChildPtr(instance.leafs.size());
-			instance.leafs.insert(instance.leafs.end(), tempLeafData.begin(), tempLeafData.end());
-			return node;
-		}
-		else {
-			node.setChildMask(0);
-			return node;
-		}
-	}
-
-	levelSize /= 4;
-
-	std::vector<TreeNode> children;
-	children.reserve(64);
-
-	for (int32 i = 0; i < 64; i++) {
-		ivec3 childPos = ivec3(i % 4, i / 16, (i / 4) % 4);
-		TreeNode child = generateTreeInstance(instance, levelSize, pos + (childPos * levelSize));
-
-		if (child.getChildMask() != 0) {
-			uint64 mask = node.getChildMask();
-			node.setChildMask(mask |= 1ull << i);
-			node.setChildPtr(instance.nodes.size());
-			children.push_back(child);
-		}
-	}
-
-	instance.nodes.insert(instance.nodes.end(), children.begin(), children.end());
-
-	return node;
-}
