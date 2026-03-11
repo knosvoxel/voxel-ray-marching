@@ -22,12 +22,12 @@ typedef struct RotationData {
 	mat4 transform;
 };
 
-//typedef struct InstanceData {
-//	vec3 position_offset;
-//	uint32 bit_offset;
-//	ivec3 size;
-//	uint32 padding;
-//};
+typedef struct InstanceComputeData {
+	vec3 worldOffset;
+	uint32 nodeOffset;
+	ivec3 size;
+	uint32 leafOffset;
+};
 
 class VoxScene {
 public:
@@ -51,6 +51,8 @@ private:
 	//uint32 voxelDataBuffer, modelDataBuffer;
 	uint32 treeNodesBuffer, leafsBuffer;
 	uint32 palette;
+
+	uint32 numInstances;
 
 	std::vector<uint32> rootTreeLevelSizes{ 8, 32, 128, 512, 2048 };
 };

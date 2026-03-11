@@ -3,18 +3,22 @@
 #include <vector>
 #include <memory>
 #include <bit>
+#include <iostream>
 
 #include "glm/glm.hpp"
 
+#include "timer.h"
+
 using namespace glm;
 
+// per instance measurements
 typedef struct MeasurementData {
-	//float64 meshGenerationDuration;
-	//float64 dispatchPre;
-	//float64 dispatchPost;
-	//uint32 vertexCount = 0;
-	//uint32 indexCount = 0;
-	//uint32 packedDataCount = 0;
+	float64 preprocessingDuration = 0.0;
+	float64 sectorGenerationDuration = 0.0;
+	float64 treeGenerationDuration = 0.0;
+	uint32 totalSectorCount = 0;
+	uint32 totalBrickCount = 0;
+
 };
 
  //8 x 8 x 8 voxels sorted on x z y order
@@ -104,6 +108,7 @@ public:
 	// tree data
 	uint32 biggestLevelSize;
 
+	// TODO: potentially exchange with offsets into these arrays. Arrays would then exist once for all models combined
 	std::vector<TreeNode> nodes;
 	std::vector<uint8> leafs;
 
@@ -120,7 +125,7 @@ private:
 	const int32 getLocalBrickIndex(int32 lx, int32 ly, int32 lz);
 
 	// generate bricks from instance voxel data
-	void generateBrickGrid();
+	void generateSectors();
 
 	// voxel data 
 	ivec3 sizeInBricks;

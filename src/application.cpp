@@ -109,7 +109,7 @@ void Application::initImgui()
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = "../../imgui_config.ini";
+    io.IniFilename = "../imgui_config.ini";
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 
     // Setup Platform/Renderer backends
@@ -154,6 +154,9 @@ void Application::renderImGuiFrame()
             glfwSwapInterval(0);
         }
     }
+    ImGui::Separator();
+    ImGui::Text("Sector Count: %1u", renderer.scene.measurements.totalSectorCount);
+    ImGui::Text("Brick Count: %1u", renderer.scene.measurements.totalBrickCount);
     ImGui::Separator();
     ImGui::DragFloat3("Position", (float*)&renderer.cam.pos, 0.01f);
     ImGui::DragFloat("Movement Speed", (float*)&renderer.cam.movement_speed, 0.01, 0.0f, 0.0f, "%.1f");

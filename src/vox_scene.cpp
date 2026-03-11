@@ -24,14 +24,55 @@ static glm::mat4 ogtTransformToGLM(const ogt_vox_scene* scene, const ogt_vox_ins
 
 void VoxScene::load(const char* path, ComputeShader& cam_compute)
 {
-    const ogt_vox_scene* voxScene = load_vox_scene(path);
-
-	float64 rotationDurationTotal = 0;
-
 	Timer timer;
 	timer.start();
 
-    for (int32 i = 0; i < voxScene->num_instances; i++)
+    const ogt_vox_scene* voxScene = load_vox_scene(path);
+	if (!voxScene)
+	{
+		std::cerr << "Failed to load vox file at path: " << path << std::endl;
+		exit(-1);
+	}
+	std::cout << "Scene load done: " << timer.elapsedSeconds() << " s" << std::endl;
+
+	// load palette into texture
+	ogt_vox_palette ogt_palette = voxScene->palette;
+
+	// texture generation with DSA
+	glCreateTextures(GL_TEXTURE_2D, 1, &palette);
+
+	glTextureParameteri(palette, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTextureParameteri(palette, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTextureParameteri(palette, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(palette, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	glTextureStorage2D(palette, 1, GL_RGBA8, 256, 1);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glTextureSubImage2D(palette, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, ogt_palette.color);
+	glBindTextureUnit(4, palette);
+
+	numInstances = voxScene->num_instances;
+	instances.reserve(numInstances);
+
+	std::cout << "Scene load & palette overhead total: " << timer.elapsedSeconds() << " s\n" << std::endl;
+
+	std::cout << numInstances << " instance(s)\n" << std::endl;
+
+	// DEBUG INFORMATION //
+	uint64 totalSizeX = 0;
+	uint64 totalSizeY = 0;
+	uint64 totalSizeZ = 0;
+
+	// TODO: per instance metrics
+	//float64 instanceTreeGenerationTotal = 0.0;
+	//float64 instanceTreeGenerationMin = DBL_MAX;
+	//float64 instanceTreeGenerationMax = 0.0;
+	
+	//float64 worldTreeGeneration = 0.0;
+
+	float64 rotationDurationTotal = 0;
+
+    for (int32 i = 0; i < numInstances; i++)
     {
 		Timer local;
         const ogt_vox_instance* currInstance = &voxScene->instances[i];
@@ -52,10 +93,22 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		VoxInstance newInstance{modelSize, rotatedModelSize, instanceOffset, rawVoxelData, measurements};
 		newInstance.posInArray = i;
 		instances.push_back(newInstance);
+
+		totalSizeX += currModel->size_x;
+		totalSizeY += currModel->size_y;
+		totalSizeZ += currModel->size_z;
     }
 
-	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms" << std::endl;
-	std::cout << "Total instance load time: " << timer.elapsedSeconds() << "s" << std::endl;
+	std::cout << "Average instance size: " << totalSizeX / numInstances << " " << totalSizeY / numInstances << " " << totalSizeZ / numInstances << "\n" << std::endl;
+
+	std::cout << "---------- instance creation -------" << std::endl;
+	std::cout << "Total instance load time: " << timer.elapsedSeconds() << "s (Average: " << timer.elapsedMilliseconds() / numInstances << "ms)" << std::endl;
+	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms\n" << std::endl;
+	std::cout << " Preprocessing: " << measurements.preprocessingDuration << "ms (Average: " << measurements.preprocessingDuration / numInstances << "ms)" << std::endl;
+	std::cout << " Sector generation: " << measurements.sectorGenerationDuration << "ms (Average: " << measurements.sectorGenerationDuration / numInstances << "ms)" << std::endl;
+	std::cout << " Tree generation: " << measurements.treeGenerationDuration << "ms (Average: " << measurements.treeGenerationDuration / numInstances << "ms)" << std::endl;
+
+	std::cout << "------------------------------------" << std::endl;
 
 	glCreateBuffers(1, &treeNodesBuffer);
 	glNamedBufferStorage(treeNodesBuffer, sizeof(TreeNode) * instances[0].nodes.size(), instances[0].nodes.data(), GL_DYNAMIC_STORAGE_BIT);
@@ -65,23 +118,10 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	glNamedBufferStorage(leafsBuffer, sizeof(uint8) * instances[0].leafs.size(), instances[0].leafs.data(), GL_DYNAMIC_STORAGE_BIT);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, leafsBuffer);
 
-    // load palette into texture
-    ogt_vox_palette ogt_palette = voxScene->palette;
-
-    // texture generation with DSA
-    glCreateTextures(GL_TEXTURE_2D, 1, &palette);
-
-    glTextureParameteri(palette, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(palette, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(palette, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTextureParameteri(palette, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    glTextureStorage2D(palette, 1, GL_RGBA8, 256, 1);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTextureSubImage2D(palette, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, ogt_palette.color);
-    glBindTextureUnit(4, palette);
-
     ogt_vox_destroy_scene(voxScene);
+
+	timer.stop();
+	std::cout << "Scene creation total: " << timer.elapsedSeconds() << " s" << std::endl;
 }
 
 void VoxScene::cleanup()

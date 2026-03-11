@@ -85,6 +85,9 @@ static TreeNode generateTreeInstance(VoxInstance& instance, int32 levelSize, ive
 
 VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData, MeasurementData& measurements) : rawVoxelData(voxelData)
 {
+	Timer timer;
+	timer.start();
+
 	lowerBounds = worldOffset - floor(vec3(rotatedModelSize.y, rotatedModelSize.z, rotatedModelSize.x) / 2.0f);
 	upperBounds = lowerBounds + vec3(modelSize.y, modelSize.z, modelSize.x);
 
@@ -92,14 +95,27 @@ VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, co
 	sizeInSectors = (size + ivec3(31)) / ivec3(32);
 	sizeInBricks = (size + ivec3(7)) / ivec3(8);
 
+	measurements.totalSectorCount += (sizeInSectors.x * sizeInSectors.y * sizeInSectors.z);
+	measurements.totalBrickCount += (sizeInBricks.x * sizeInBricks.y * sizeInBricks.z);
+
 	biggestLevelSize = getClosestTreeLevelSize(size);
 	
-	generateBrickGrid();
+	timer.stop();
+	measurements.preprocessingDuration += timer.elapsedMilliseconds();
+	timer.start();
+
+	generateSectors();
+
+	timer.stop();
+	measurements.sectorGenerationDuration += timer.elapsedMilliseconds();
+	timer.start();
 
 	// root node
 	nodes.resize(1);
 	TreeNode root = generateTreeInstance(*this, biggestLevelSize, ivec3(0));
 	nodes[0] = root;
+	timer.stop();
+	measurements.treeGenerationDuration += timer.elapsedMilliseconds();
 }
 
 const int32 VoxInstance::getPoolIndex(int32 bx, int32 by, int32 bz)
@@ -159,7 +175,7 @@ const bool VoxInstance::anySectorExits(ivec3 sectorMin, ivec3 sectorMax)
 	return false;
 }
 
-void VoxInstance::generateBrickGrid()
+void VoxInstance::generateSectors()
 {
 	int32 totalSectors = sizeInSectors.x * sizeInSectors.y * sizeInSectors.z;
 	int32 totalBricks = sizeInBricks.x * sizeInBricks.y * sizeInBricks.z;
