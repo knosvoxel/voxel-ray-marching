@@ -12,6 +12,8 @@ struct Camera{
     uint pad4;
 };
 
+// header: 1 bit: isLeaf | 31 bits: childPtr
+// childMask: 32 bits higher mask values, 32 bits lower mask values
 struct TreeNode{
     uint packedData[3];
 };
@@ -55,6 +57,9 @@ uint64_t getNodeChildMask(TreeNode n){
     return uint64_t(n.packedData[1]) | (uint64_t(n.packedData[2]) << 32);
 }
 
+// returns index of positions associated child node at this level
+// pos is in range [1.0, 2.0)
+// with each level more child nodes exists so more mantissa bits are included in cellPos
 int getNodeCellIndex(vec3 pos, int scaleExp){
     uvec3 cellPos = floatBitsToUint(pos) >> scaleExp & 3;
     return int(cellPos.x + cellPos.z * 4 + cellPos.y * 16);
@@ -87,6 +92,8 @@ uint popcnt_var64(uint64_t mask, uint width){
     return count;
 }
 
+// reverses "pos" from range [1.0, 2.0) to (2.0, 1.0] if "dir > 0"
+// all positive values of pos are flipped to their negative equivalent
 vec3 getMirroredPos(vec3 pos, vec3 dir, bool rangeCheck){
     vec3 mirrored = uintBitsToFloat(floatBitsToUint(pos) ^ 0x7FFFFFu);
 
@@ -106,16 +113,13 @@ bool isSolidVoxelAt(ivec3 voxelPos){
 }
 
 // Raycasting
-HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
-    float scale = 1.0 / (1 << biggest_level_size);
-    vec3 origin = worldOrigin * scale + rayPos * scale + 1.0;
+HitInfo castRay(ivec3 worldOffset, vec3 rayPos, vec3 dir){
+    float voxelScale = 1.0 / (1 << biggest_level_size); // e.g. 1 << 8 = 256 | maps volume coordinates into [0, 1) range
+    vec3 origin = worldOffset * voxelScale + rayPos * voxelScale + 1.0; // maps ray origin into volume's coordinate range. Lands outside of [1, 2) if ray origin not within volume
 
-    uint stack[11]; // one idx per level
-    int scaleExp = 21;
-    
-    uint nodeIdx = 0; // root 
-    TreeNode node = nodes[nodeIdx];
-
+    // mark ray direction's positive components in a mask
+    // 2 bits per directions
+    // y00 z00 x00
     uint mirrorMask = 0;
     if (dir.x > 0) mirrorMask |= 3 << 0;
     if (dir.y > 0) mirrorMask |= 3 << 4;
@@ -124,13 +128,13 @@ HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
     origin = getMirroredPos(origin, dir, true);
 
     vec3 invDir = 1.0 / -abs(dir);
-//    vec3 pos = clamp(origin, 1.0f, 1.9999999f);
 
     vec3 tEntry = (vec3(1.0) - origin) * invDir;
     vec3 tExit = (vec3(2.0) - origin) * invDir;
     float tMin = max(max(min(tEntry.x, tExit.x), min(tEntry.y, tExit.y)), min(tEntry.z, tExit.z));
     float tMax = min(min(max(tEntry.x, tExit.x), max(tEntry.y, tExit.y)), max(tEntry.z, tExit.z));
 
+    // which side of the AABB does the ray enter the model?
     bvec3 entryMask = bvec3(
         tEntry.x == tMin,
         tEntry.y == tMin,
@@ -142,15 +146,22 @@ HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
 
     if (tMin > tMax || tMax < 0.0) return hit;
 
+    // ray position clamped to [1, 2)
     vec3 pos = origin + max(tMin, 0.0) * (-abs(dir));
     pos = clamp(pos, 1.0, 1.99999);
+
+    uint stack[11]; // one idx per level
+    int scaleExp = 21;
+    
+    uint nodeIdx = 0; // root 
+    TreeNode node = nodes[nodeIdx];
 
     vec3 sideDist = vec3(0.0);
 
     for (int i = 0; i < MAX_STEPS; i++){
         uint childIdx = getNodeCellIndex(pos, scaleExp) ^ mirrorMask;
 
-        // descend
+        // descend if any node exists at position
         while (!nodeIsLeaf(node) && (getNodeChildMask(node) >> childIdx & 1) != 0){
             stack[scaleExp >> 1] = nodeIdx; // save ancestor
 
@@ -161,9 +172,11 @@ HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
             childIdx = getNodeCellIndex(pos, scaleExp) ^ mirrorMask;
         }
 
+        // stop stepping through volume if leaf with solid voxel has been found
         if (nodeIsLeaf(node) && (getNodeChildMask(node) >> childIdx & 1) != 0) break;
 
-        // 2³ steps
+        // otherwise continue stepping in 2³ cuboid steps
+        // 0x00330033: OR-sum of all bits in a 2³ cube at zero coordinates in order x + z * 4 + y * 16
         int advScaleExp = scaleExp;
         if ((getNodeChildMask(node) >> (childIdx & 0x2A) & 0x00330033u) == 0u) advScaleExp++;
 
@@ -197,7 +210,7 @@ HitInfo castRay(ivec3 worldOrigin, vec3 rayPos, vec3 dir){
 
         uint colIdx = leafData[getNodeChildPtr(node) + popcnt_var64(getNodeChildMask(node), childIdx)];
         hit.color = texture(palette, vec2(colIdx / 256.0, 0.5)).rgb;
-        hit.pos = (pos - 1.0 - worldOrigin * scale) * (1 << biggest_level_size);
+        hit.pos = (pos - 1.0 - worldOffset * voxelScale) * (1 << biggest_level_size);
 
         float tmax = min(min(sideDist.x, sideDist.y), sideDist.z);
         bvec3 sideMask;

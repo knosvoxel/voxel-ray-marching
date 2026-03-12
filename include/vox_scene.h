@@ -27,6 +27,7 @@ typedef struct InstanceComputeData {
 	uint32 nodeOffset;
 	ivec3 size;
 	uint32 leafOffset;
+	//uint32 biggestLevelSize;
 };
 
 class VoxScene {
@@ -41,6 +42,7 @@ public:
 	std::vector<VoxInstance> instances;
 
 	MeasurementData measurements;
+	uint32 numInstances;
 
 private:
 	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize);
@@ -51,8 +53,6 @@ private:
 	//uint32 voxelDataBuffer, modelDataBuffer;
 	uint32 treeNodesBuffer, leafsBuffer;
 	uint32 palette;
-
-	uint32 numInstances;
 
 	std::vector<uint32> rootTreeLevelSizes{ 8, 32, 128, 512, 2048 };
 };

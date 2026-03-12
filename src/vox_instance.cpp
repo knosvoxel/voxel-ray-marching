@@ -14,22 +14,27 @@ void leftPack(uint8 data[64], uint64 mask) {
 	}
 }
 
+// levelSize is bit representation of amount of voxels per dimension in level
+// levelSize = 2: 4³ voxels per section (0 - 3) -- leaf
+// levelSize = 4: 16³ voxels per section (0 - 15)
+// levelSize = 6: 64³ voxels per section (0 - 63)
+// levelSize = 8: 256³ voxels per section (0 - 255);
 static TreeNode generateTreeInstance(VoxInstance& instance, int32 levelSize, ivec3 pos = {})
 {
 	TreeNode node{};
 
 	// check if any sector in region at position of current levelSize, otherwise fully skip subtree
-	if (levelSize >= 16) {
+	if (levelSize >= 4) {
 		// positions in sector space
 		ivec3 sectorMin = pos / ivec3(32);
-		ivec3 sectorMax = (pos + ivec3(levelSize - 1)) / ivec3(32);
+		ivec3 sectorMax = (pos + ivec3((1 << levelSize) - 1)) / ivec3(32);
 
 		if (!instance.anySectorExits(sectorMin, sectorMax)) return node;
 	}
 
 	// Create leaf
 	// 4 x 4 x 4 voxel
-	if (levelSize == 4) {
+	if (levelSize == 2) {
 		const Brick* brick = instance.getBrick(pos);
 		if (brick == nullptr) return node; // empty brick
 
@@ -37,47 +42,47 @@ static TreeNode generateTreeInstance(VoxInstance& instance, int32 levelSize, ive
 		ivec3 localOrigin = pos % ivec3(8);
 
 		// 4 x 4 x 4 brick subtile
-		uint8 temp[64];
+		uint8 bricklet[64];
 		for (int32 i = 0; i < 64; i++)
 		{
 			ivec3 offset = ivec3(i % 4, i / 16, (i / 4) % 4);
-			temp[i] = brick->data[Brick::getIndex(
+			bricklet[i] = brick->data[Brick::getIndex(
 				localOrigin.x + offset.x,
 				localOrigin.y + offset.y,
 				localOrigin.z + offset.z
 			)];
 		}
 
-		uint64 mask = Brick::packBits64(temp);
+		uint64 mask = Brick::packBits64(bricklet);
 		if (mask == 0) return node; // no voxels in subtile
 
 		// pack subtile voxel data to the left
-		leftPack(temp, mask);
+		leftPack(bricklet, mask);
 
 		node.setIsLeaf(true);
 		node.setChildMask(mask);
 		node.setChildPtr(instance.leafs.size());
-		instance.leafs.insert(instance.leafs.end(), temp, temp + std::popcount(mask));
+		instance.leafs.insert(instance.leafs.end(), bricklet, bricklet + std::popcount(mask));
 		return node;
 	}
 
-	levelSize /= 4;
+	levelSize -= 2;
 
 	std::vector<TreeNode> children;
 	children.reserve(64);
 
 	for (int32 i = 0; i < 64; i++) {
-		ivec3 childPos = ivec3(i % 4, i / 16, (i / 4) % 4);
-		TreeNode child = generateTreeInstance(instance, levelSize, pos + (childPos * levelSize));
+		ivec3 childPos = i >> ivec3(0, 4, 2) & 3; // position xyz range: 0 - 3
+		TreeNode child = generateTreeInstance(instance, levelSize, pos + (childPos << levelSize));
 
 		if (child.getChildMask() != 0) {
 			uint64 mask = node.getChildMask();
-			node.setChildMask(mask |= 1ull << i);
-			node.setChildPtr(instance.nodes.size());
+			node.setChildMask(mask |= 1ull << i); // 1ull = 1 as 64 bit value
 			children.push_back(child);
 		}
 	}
 
+	node.setChildPtr(instance.nodes.size());
 	instance.nodes.insert(instance.nodes.end(), children.begin(), children.end());
 
 	return node;
@@ -99,7 +104,7 @@ VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, co
 	measurements.totalBrickCount += (sizeInBricks.x * sizeInBricks.y * sizeInBricks.z);
 
 	biggestLevelSize = getClosestTreeLevelSize(size);
-	
+
 	timer.stop();
 	measurements.preprocessingDuration += timer.elapsedMilliseconds();
 	timer.start();
@@ -255,19 +260,16 @@ void VoxInstance::cleanup() {
 	}
 }
 
-std::vector<int32> instanceTreeLevelSizes{ 4, 16, 64, 256 };
 uint32 VoxInstance::getClosestTreeLevelSize(ivec3 modelSize)
 {
 	int32 maxDim = max(modelSize.x, modelSize.y);
 	maxDim = max(maxDim, modelSize.z);
 
-	for (int32 level = 0; level < instanceTreeLevelSizes.size(); ++level)
-	{
-		int32 levelSize = instanceTreeLevelSizes[level];
-		if (maxDim <= levelSize)
-			return levelSize;
-	}
+	if (maxDim <= 4) return 2;
+	if (maxDim <= 16) return 4;
+	if (maxDim <= 64) return 6;
+	if (maxDim <= 256) return 8;
 
-	assert(false && "Model size exceed expected maximum size.");
+	assert(false && "Model size exceeds expected maximum size.");
 	return -1;
 }

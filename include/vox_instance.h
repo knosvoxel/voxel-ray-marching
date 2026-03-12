@@ -113,6 +113,11 @@ public:
 	std::vector<uint8> leafs;
 
 private:
+	// closest level size bit bits
+	// maxDim <= 4: 2
+	// maxDim <= 16: 4
+	// maxDim <= 64: 6
+	// maxDim <= 256: 8
 	static uint32 getClosestTreeLevelSize(ivec3 modelSize);
 
 	// get brick index based on brick's coordinates in "brick" space(in the brick pool)
