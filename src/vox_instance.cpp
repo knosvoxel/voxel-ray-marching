@@ -1,15 +1,19 @@
 #include "vox_instance.h"
 
-VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData, MeasurementData& measurements) : rawVoxelData(voxelData)
+VoxInstance::VoxInstance(const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData, MeasurementData& measurements) : rawVoxelData(voxelData)
 {
 	Timer timer;
 	timer.start();
 
-	lowerBounds = worldOffset - floor(vec3(rotatedModelSize.y, rotatedModelSize.z, rotatedModelSize.x) / 2.0f);
-	upperBounds = lowerBounds + vec3(modelSize.y, modelSize.z, modelSize.x);
+	lowerBounds = worldOffset - floor(vec3(rotatedModelSize) / 2.0f);
+	upperBounds = lowerBounds + vec3(rotatedModelSize);
 
 	size = upperBounds - lowerBounds;
-	sizeInBricks = (size + ivec3(7)) / ivec3(8);
+
+	ivec3 brickLower = ivec3(lowerBounds + vec3(1024)) / 8;
+	ivec3 brickUpper = ivec3(upperBounds + vec3(1024 + 7)) / 8;
+
+	occupiedBricks = brickUpper - brickLower;
 
 	timer.stop();
 	measurements.treeGenerationDuration += timer.elapsedMilliseconds();
@@ -17,5 +21,5 @@ VoxInstance::VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, co
 
 const int32 VoxInstance::getPoolIndex(int32 bx, int32 by, int32 bz)
 {
-	return bx + bz * sizeInBricks.x + by * sizeInBricks.x * sizeInBricks.z;
+	return bx + bz * occupiedBricks.x + by * occupiedBricks.x * occupiedBricks.z;
 }

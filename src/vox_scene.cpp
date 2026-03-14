@@ -177,14 +177,13 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		ogt_vox_transform transform = ogt_vox_sample_instance_transform(currInstance, 0, voxScene);
 		vec3 instanceOffset = vec3(transform.m31, transform.m32, transform.m30);
 
-		ivec3 modelSize = ivec3(currModel->size_x, currModel->size_y, currModel->size_z);
 		ivec3 rotatedModelSize;
 		local.start();
 		uint8* rawVoxelData = createRotatedModelCPU(voxScene, i, rotatedModelSize);
 		local.stop();
 		rotationDurationTotal += local.elapsedMilliseconds();
 		local.start();
-		VoxInstance newInstance{modelSize, rotatedModelSize, instanceOffset, rawVoxelData, measurements};
+		VoxInstance newInstance{rotatedModelSize, instanceOffset, rawVoxelData, measurements};
 		newInstance.posInArray = i;
 		instances.push_back(newInstance);
 
@@ -250,6 +249,11 @@ static uint64 packSectorKey(int32 sx, int32 sy, int32 sz) {
 	return ((uint64)(sx + SECTOR_BIAS) | (uint64)(sy + SECTOR_BIAS) << 21 | (uint64)(sz + SECTOR_BIAS) << 42);
 }
 
+//// get brick of voxel within sector
+//// local between 0 and 3 in all three directions
+//// 
+//// sector has 32 x 32 x 32 voxels, brick has 8 x 8 x 8
+//// first get offset within sector, then fetch which brick is at that local position in the sector
 const Brick* VoxScene::getBrick(ivec3 voxelPos)
 {
 	ivec3 brickPos = voxelPos / ivec3(8);
@@ -261,13 +265,6 @@ const Brick* VoxScene::getBrick(ivec3 voxelPos)
 	if (sector == sectors.end() || sector->second == nullptr) return nullptr;
 
 	return sector->second->bricks[getLocalBrickIndex(localBrickPos.x, localBrickPos.y, localBrickPos.z)];
-
-	//// get brick of voxel within sector
-	//// local between 0 and 3 in all three directions
-	//// 
-	//// sector has 32 x 32 x 32 voxels, brick has 8 x 8 x 8
-	//// first get offset within sector, then fetch which brick is at that local position in the sector
-	//return sector->bricks[getLocalBrickIndex(localBrickPos.x, localBrickPos.y, localBrickPos.z)];
 }
 
 const bool VoxScene::anySectorExits(ivec3 sectorMin, ivec3 sectorMax)
@@ -290,17 +287,18 @@ const bool VoxScene::anySectorExits(ivec3 sectorMin, ivec3 sectorMax)
 
 void VoxScene::generateSectors(VoxInstance& instance)
 {
-	const ivec3 brickWorldOrigin = ivec3(floor(instance.lowerBounds) + vec3(2048)) / 8;
+	const ivec3 brickWorldOrigin = ivec3(floor(instance.lowerBounds) + vec3(1024)) / 8;
+	const ivec3 voxelOrigin = ivec3(floor(instance.lowerBounds));
 
-	int32 totalBricks = instance.sizeInBricks.x * instance.sizeInBricks.y * instance.sizeInBricks.z;
+	int32 totalBricks = instance.occupiedBricks.x * instance.occupiedBricks.y * instance.occupiedBricks.z;
 	std::vector<std::unique_ptr<Brick>> brickPool(totalBricks);
 
 #pragma omp parallel for collapse(3) schedule(static)
-	for (int32 by = 0; by < instance.sizeInBricks.y; by++)
+	for (int32 by = 0; by < instance.occupiedBricks.y; by++)
 	{
-		for (int32 bz = 0; bz < instance.sizeInBricks.z; bz++)
+		for (int32 bz = 0; bz < instance.occupiedBricks.z; bz++)
 		{
-			for (int32 bx = 0; bx < instance.sizeInBricks.x; bx++)
+			for (int32 bx = 0; bx < instance.occupiedBricks.x; bx++)
 			{
 				Brick local{};
 				bool anySet = false;
@@ -311,11 +309,16 @@ void VoxScene::generateSectors(VoxInstance& instance)
 					{
 						for (int32 lx = 0; lx < 8; lx++)
 						{
-							ivec3 localPos = ivec3(bx * 8 + lx, by * 8 + ly, bz * 8 + lz);
-							if (localPos.x >= instance.size.x || localPos.y >= instance.size.y || localPos.z >= instance.size.z)
+							ivec3 worldVoxelPos = (brickWorldOrigin + ivec3(bx, by, bz)) * 8 + ivec3(lx, ly, lz);
+							ivec3 localPos = worldVoxelPos - (voxelOrigin + ivec3(1024));
+
+							if (localPos.x < 0 || localPos.x >= instance.size.x ||
+								localPos.y < 0 || localPos.y >= instance.size.y ||
+								localPos.z < 0 || localPos.z >= instance.size.z)
 								continue;
 
 							uint32 srcIdx = localPos.x + localPos.y * instance.size.x + localPos.z * instance.size.x * instance.size.y;
+
 							uint8 colorIdx = instance.rawVoxelData[srcIdx];
 							if (colorIdx != 0) {
 								local.data[Brick::getIndex(lx, ly, lz)] = colorIdx;
@@ -334,11 +337,11 @@ void VoxScene::generateSectors(VoxInstance& instance)
 	}
 
 	// assign bricks to sectors
-	for (int32 by = 0; by < instance.sizeInBricks.y; by++)
+	for (int32 by = 0; by < instance.occupiedBricks.y; by++)
 	{
-		for (int32 bz = 0; bz < instance.sizeInBricks.z; bz++)
+		for (int32 bz = 0; bz < instance.occupiedBricks.z; bz++)
 		{
-			for (int32 bx = 0; bx < instance.sizeInBricks.x; bx++)
+			for (int32 bx = 0; bx < instance.occupiedBricks.x; bx++)
 			{
 				int32 poolIdx = instance.getPoolIndex(bx, by, bz);
 				if (!brickPool[poolIdx]) continue;
@@ -353,7 +356,18 @@ void VoxScene::generateSectors(VoxInstance& instance)
 					sectors[key] = new Sector();
 
 				int32 localIdx = getLocalBrickIndex(localBrickPos.x, localBrickPos.y, localBrickPos.z);
-				sectors[key]->bricks[localIdx] = brickPool[poolIdx].release();
+				Brick*& existingBrick = sectors[key]->bricks[localIdx];
+
+				if (existingBrick == nullptr) {
+					existingBrick = brickPool[poolIdx].release();
+				}
+				else {
+					Brick* newBrick = brickPool[poolIdx].get();
+					for (int32 v = 0; v < 512; v++) {
+						if (newBrick->data[v] != 0)
+							existingBrick->data[v] = newBrick->data[v];
+					}
+				}
 			}
 		}
 	}
@@ -427,8 +441,3 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 
 	return outData;
 }
-
-//uint32 VoxScene::getClosestRootLevelSize(vec3 modelSize)
-//{
-//	return uint32();
-//}

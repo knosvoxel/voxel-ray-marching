@@ -88,12 +88,10 @@ typedef struct TreeNode {
 struct VoxInstance {
 //public:
 	VoxInstance() {};
-	VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData, MeasurementData& measurements);
+	VoxInstance(const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData, MeasurementData& measurements);
 	~VoxInstance() {};
 
 	const int32 getPoolIndex(int32 bx, int32 by, int32 bz);
-
-	//void cleanup();
 
 	int32 posInArray = -1;
 
@@ -103,24 +101,8 @@ struct VoxInstance {
 
 	ivec3 size;
 
-	// tree data
-	//uint32 biggestLevelSize;
-
-	ivec3 sizeInBricks;
+	ivec3 occupiedBricks;
 	// voxel data 
 	uint8* rawVoxelData;
-
-	// TODO: potentially exchange with offsets into these arrays. Arrays would then exist once for all models combined
-
-//private:
-	// closest level size bit bits
-	// maxDim <= 4: 2
-	// maxDim <= 16: 4
-	// maxDim <= 64: 6
-	// maxDim <= 256: 8
-	//static uint32 getClosestTreeLevelSize(ivec3 modelSize);
-
-	// get brick index based on brick's coordinates in "brick" space(in the brick pool)
-
 
 };
