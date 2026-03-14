@@ -2,7 +2,6 @@
 
 #include <vector>
 #include <memory>
-#include <bit>
 #include <iostream>
 
 #include "glm/glm.hpp"
@@ -86,16 +85,15 @@ typedef struct TreeNode {
 	}
 };
 
-class VoxInstance {
-public:
+struct VoxInstance {
+//public:
 	VoxInstance() {};
 	VoxInstance(const ivec3 modelSize, const ivec3 rotatedModelSize, const vec3 worldOffset, uint8* voxelData, MeasurementData& measurements);
 	~VoxInstance() {};
 
-	void cleanup();
+	const int32 getPoolIndex(int32 bx, int32 by, int32 bz);
 
-	const Brick* getBrick(ivec3 voxelPos);
-	const bool anySectorExits(ivec3 sectorMin, ivec3 sectorMax);
+	//void cleanup();
 
 	int32 posInArray = -1;
 
@@ -106,35 +104,23 @@ public:
 	ivec3 size;
 
 	// tree data
-	uint32 biggestLevelSize;
+	//uint32 biggestLevelSize;
+
+	ivec3 sizeInBricks;
+	// voxel data 
+	uint8* rawVoxelData;
 
 	// TODO: potentially exchange with offsets into these arrays. Arrays would then exist once for all models combined
-	std::vector<TreeNode> nodes;
-	std::vector<uint8> leafs;
 
-private:
+//private:
 	// closest level size bit bits
 	// maxDim <= 4: 2
 	// maxDim <= 16: 4
 	// maxDim <= 64: 6
 	// maxDim <= 256: 8
-	static uint32 getClosestTreeLevelSize(ivec3 modelSize);
+	//static uint32 getClosestTreeLevelSize(ivec3 modelSize);
 
 	// get brick index based on brick's coordinates in "brick" space(in the brick pool)
-	const int32 getPoolIndex(int32 bx, int32 by, int32 bz);
 
-	// sectors
 
-	const int32 getSectorIndex(int32 sx, int32 sy, int32 sz);
-	// local brick within sector
-	const int32 getLocalBrickIndex(int32 lx, int32 ly, int32 lz);
-
-	// generate bricks from instance voxel data
-	void generateSectors();
-
-	// voxel data 
-	ivec3 sizeInBricks;
-	ivec3 sizeInSectors;
-	std::vector<Sector*> sectors; // sparse: nullptr = empty
-	uint8* rawVoxelData;
 };

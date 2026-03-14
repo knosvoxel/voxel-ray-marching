@@ -1,5 +1,8 @@
 #include "vox_scene.h"
 
+// half of 2048 / 32
+static constexpr int32 SECTOR_BIAS = 64;
+
 static inline glm::mat4 computeTransformMat(const glm::mat4 transform, const glm::vec3& pivot) {
     static const glm::mat4 shift_matrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.5f));
     const glm::mat4 pivot_matrix = glm::translate(glm::mat4(1.0f), -pivot);
@@ -20,6 +23,94 @@ static glm::mat4 ogtTransformToGLM(const ogt_vox_scene* scene, const ogt_vox_ins
     const glm::vec4 col3(t.m30, t.m31, t.m32, t.m33);
     const glm::vec3& pivot = instancePivot(model);
     return computeTransformMat(glm::mat4(col0, col1, col2, col3), pivot);
+}
+
+// Left-pack data according to mask. Folling bytes are undefined
+void leftPack(uint8 data[64], uint64 mask) {
+#if SIMD_AVX512
+	_mm512_storeu_epi8(data, _mm512_maskz_compress_epi8(mask, _mm512_loadu_epi8(data)));
+	return;
+#endif
+
+	for (uint32 i = 0, j = 0; mask != 0; i++) {
+		data[j] = data[i];
+		j += (mask & 1);
+		mask >>= 1;
+	}
+}
+
+// levelSize is bit representation of amount of voxels per dimension in level
+// levelSize = 2: 4³ voxels per section (0 - 3) -- leaf
+// levelSize = 4: 16³ voxels per section (0 - 15)
+// levelSize = 6: 64³ voxels per section (0 - 63)
+// levelSize = 8: 256³ voxels per section (0 - 255);
+static TreeNode generateTreeInstance(VoxScene& scene, int32 levelSize, ivec3 pos = {})
+{
+	TreeNode node{};
+
+	// check if any sector in region at position of current levelSize, otherwise fully skip subtree
+	if (levelSize >= 4) {
+		// positions in sector space
+		ivec3 sectorMin = pos / ivec3(32);
+		ivec3 sectorMax = (pos + ivec3((1 << levelSize) - 1)) / ivec3(32);
+
+		if (!scene.anySectorExits(sectorMin, sectorMax)) return node;
+	}
+
+	// Create leaf
+	// 4 x 4 x 4 voxel
+	if (levelSize == 2) {
+		const Brick* brick = scene.getBrick(pos);
+		if (brick == nullptr) return node; // empty brick
+
+		// brick origin
+		ivec3 localOrigin = pos % ivec3(8);
+
+		// 4 x 4 x 4 brick subtile
+		uint8 bricklet[64];
+		for (int32 i = 0; i < 64; i++)
+		{
+			ivec3 offset = ivec3(i % 4, i / 16, (i / 4) % 4);
+			bricklet[i] = brick->data[Brick::getIndex(
+				localOrigin.x + offset.x,
+				localOrigin.y + offset.y,
+				localOrigin.z + offset.z
+			)];
+		}
+
+		uint64 mask = Brick::packBits64(bricklet);
+		if (mask == 0) return node; // no voxels in subtile
+
+		// pack subtile voxel data to the left
+		leftPack(bricklet, mask);
+
+		node.setIsLeaf(true);
+		node.setChildMask(mask);
+		node.setChildPtr(scene.leafs.size());
+		scene.leafs.insert(scene.leafs.end(), bricklet, bricklet + std::popcount(mask));
+		return node;
+	}
+
+	levelSize -= 2;
+
+	std::vector<TreeNode> children;
+	children.reserve(64);
+
+	for (int32 i = 0; i < 64; i++) {
+		ivec3 childPos = i >> ivec3(0, 4, 2) & 3; // position xyz range: 0 - 3
+		TreeNode child = generateTreeInstance(scene, levelSize, pos + (childPos << levelSize));
+
+		if (child.getChildMask() != 0) {
+			uint64 mask = node.getChildMask();
+			node.setChildMask(mask |= 1ull << i); // 1ull = 1 as 64 bit value
+			children.push_back(child);
+		}
+	}
+
+	node.setChildPtr(scene.nodes.size());
+	scene.nodes.insert(scene.nodes.end(), children.begin(), children.end());
+
+	return node;
 }
 
 void VoxScene::load(const char* path, ComputeShader& cam_compute)
@@ -70,6 +161,9 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	
 	//float64 worldTreeGeneration = 0.0;
 
+	sizeInSectors = ivec3(2048 / 32); // 64
+	sizeInBricks = ivec3(2048 / 8); // 256
+
 	float64 rotationDurationTotal = 0;
 
     for (int32 i = 0; i < numInstances; i++)
@@ -94,10 +188,16 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		newInstance.posInArray = i;
 		instances.push_back(newInstance);
 
+		generateSectors(newInstance);
+
 		totalSizeX += currModel->size_x;
 		totalSizeY += currModel->size_y;
 		totalSizeZ += currModel->size_z;
     }
+
+	nodes.resize(1);
+	TreeNode root = generateTreeInstance(*this, biggestLevelSize, ivec3(0));
+	nodes[0] = root;
 
 	std::cout << "Average instance size: " << totalSizeX / numInstances << " " << totalSizeY / numInstances << " " << totalSizeZ / numInstances << "\n" << std::endl;
 
@@ -111,11 +211,11 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	std::cout << "------------------------------------" << std::endl;
 
 	glCreateBuffers(1, &treeNodesBuffer);
-	glNamedBufferStorage(treeNodesBuffer, sizeof(TreeNode) * instances[0].nodes.size(), instances[0].nodes.data(), GL_DYNAMIC_STORAGE_BIT);
+	glNamedBufferStorage(treeNodesBuffer, sizeof(TreeNode) * nodes.size(), nodes.data(), GL_DYNAMIC_STORAGE_BIT);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, treeNodesBuffer);
 
 	glCreateBuffers(1, &leafsBuffer);
-	glNamedBufferStorage(leafsBuffer, sizeof(uint8) * instances[0].leafs.size(), instances[0].leafs.data(), GL_DYNAMIC_STORAGE_BIT);
+	glNamedBufferStorage(leafsBuffer, sizeof(uint8) * leafs.size(), leafs.data(), GL_DYNAMIC_STORAGE_BIT);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, leafsBuffer);
 
     ogt_vox_destroy_scene(voxScene);
@@ -130,9 +230,132 @@ void VoxScene::cleanup()
 	glDeleteBuffers(1, &leafsBuffer);
 	glDeleteTextures(1, &palette);
 
-	for (int i = 0; i < instances.size(); i++)
+	//for (Sector* sector : sectors.)
+	//{
+
+	//}
+}
+
+const int32 VoxScene::getSectorIndex(int32 sx, int32 sy, int32 sz)
+{
+	return sx + sz * sizeInSectors.x + sy * sizeInSectors.x * sizeInSectors.z;
+}
+
+const int32 VoxScene::getLocalBrickIndex(int32 lx, int32 ly, int32 lz)
+{
+	return lx + lz * 4 + ly * 16;
+}
+
+static uint64 packSectorKey(int32 sx, int32 sy, int32 sz) {
+	return ((uint64)(sx + SECTOR_BIAS) | (uint64)(sy + SECTOR_BIAS) << 21 | (uint64)(sz + SECTOR_BIAS) << 42);
+}
+
+const Brick* VoxScene::getBrick(ivec3 voxelPos)
+{
+	ivec3 brickPos = voxelPos / ivec3(8);
+	ivec3 sectorPos = brickPos / ivec3(4);
+	ivec3 localBrickPos = brickPos % ivec3(4);
+
+	uint64 key = packSectorKey(sectorPos.x, sectorPos.y, sectorPos.z);
+	auto sector = sectors.find(key);
+	if (sector == sectors.end() || sector->second == nullptr) return nullptr;
+
+	return sector->second->bricks[getLocalBrickIndex(localBrickPos.x, localBrickPos.y, localBrickPos.z)];
+
+	//// get brick of voxel within sector
+	//// local between 0 and 3 in all three directions
+	//// 
+	//// sector has 32 x 32 x 32 voxels, brick has 8 x 8 x 8
+	//// first get offset within sector, then fetch which brick is at that local position in the sector
+	//return sector->bricks[getLocalBrickIndex(localBrickPos.x, localBrickPos.y, localBrickPos.z)];
+}
+
+const bool VoxScene::anySectorExits(ivec3 sectorMin, ivec3 sectorMax)
+{
+	for (int32 sy = sectorMin.y; sy <= sectorMax.y; sy++)
 	{
-		instances[i].cleanup();
+		for (int32 sz = sectorMin.z; sz <= sectorMax.z; sz++)
+		{
+			for (int32 sx = sectorMin.x; sx <= sectorMax.x; sx++)
+			{
+				uint64 key = packSectorKey(sx, sy, sz);
+				auto sector = sectors.find(key);
+				if (sector != sectors.end() && sector->second != nullptr)
+					return true;
+			}
+		}
+	}
+	return false;
+}
+
+void VoxScene::generateSectors(VoxInstance& instance)
+{
+	const ivec3 brickWorldOrigin = ivec3(floor(instance.lowerBounds) + vec3(2048)) / 8;
+
+	int32 totalBricks = instance.sizeInBricks.x * instance.sizeInBricks.y * instance.sizeInBricks.z;
+	std::vector<std::unique_ptr<Brick>> brickPool(totalBricks);
+
+#pragma omp parallel for collapse(3) schedule(static)
+	for (int32 by = 0; by < instance.sizeInBricks.y; by++)
+	{
+		for (int32 bz = 0; bz < instance.sizeInBricks.z; bz++)
+		{
+			for (int32 bx = 0; bx < instance.sizeInBricks.x; bx++)
+			{
+				Brick local{};
+				bool anySet = false;
+
+				for (int32 ly = 0; ly < 8; ly++)
+				{
+					for (int32 lz = 0; lz < 8; lz++)
+					{
+						for (int32 lx = 0; lx < 8; lx++)
+						{
+							ivec3 localPos = ivec3(bx * 8 + lx, by * 8 + ly, bz * 8 + lz);
+							if (localPos.x >= instance.size.x || localPos.y >= instance.size.y || localPos.z >= instance.size.z)
+								continue;
+
+							uint32 srcIdx = localPos.x + localPos.y * instance.size.x + localPos.z * instance.size.x * instance.size.y;
+							uint8 colorIdx = instance.rawVoxelData[srcIdx];
+							if (colorIdx != 0) {
+								local.data[Brick::getIndex(lx, ly, lz)] = colorIdx;
+								anySet = true;
+							}
+						}
+					}
+				}
+
+				if (anySet) {
+					int32 idx = instance.getPoolIndex(bx, by, bz);
+					brickPool[idx] = std::make_unique<Brick>(local);
+				}
+			}
+		}
+	}
+
+	// assign bricks to sectors
+	for (int32 by = 0; by < instance.sizeInBricks.y; by++)
+	{
+		for (int32 bz = 0; bz < instance.sizeInBricks.z; bz++)
+		{
+			for (int32 bx = 0; bx < instance.sizeInBricks.x; bx++)
+			{
+				int32 poolIdx = instance.getPoolIndex(bx, by, bz);
+				if (!brickPool[poolIdx]) continue;
+
+				ivec3 brickWorldPos = brickWorldOrigin + ivec3(bx, by, bz);
+				ivec3 sectorWorldPos = ivec3(floor(vec3(brickWorldPos) / 4.0f));
+				ivec3 localBrickPos = brickWorldPos % 4;
+
+				uint64 key = packSectorKey(sectorWorldPos.x, sectorWorldPos.y, sectorWorldPos.z);
+
+				if (sectors.find(key) == sectors.end())
+					sectors[key] = new Sector();
+
+				int32 localIdx = getLocalBrickIndex(localBrickPos.x, localBrickPos.y, localBrickPos.z);
+				sectors[key]->bricks[localIdx] = brickPool[poolIdx].release();
+			}
+		}
 	}
 }
 
@@ -205,7 +428,7 @@ uint8* VoxScene::createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instan
 	return outData;
 }
 
-uint32 VoxScene::getClosestRootLevelSize(vec3 modelSize)
-{
-	return uint32();
-}
+//uint32 VoxScene::getClosestRootLevelSize(vec3 modelSize)
+//{
+//	return uint32();
+//}
