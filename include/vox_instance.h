@@ -15,9 +15,6 @@ typedef struct MeasurementData {
 	float64 preprocessingDuration = 0.0;
 	float64 sectorGenerationDuration = 0.0;
 	float64 treeGenerationDuration = 0.0;
-	uint32 totalSectorCount = 0;
-	uint32 totalBrickCount = 0;
-
 };
 
  //8 x 8 x 8 voxels sorted on x z y order

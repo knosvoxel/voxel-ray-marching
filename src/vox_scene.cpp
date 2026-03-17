@@ -182,21 +182,26 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		uint8* rawVoxelData = createRotatedModelCPU(voxScene, i, rotatedModelSize);
 		local.stop();
 		rotationDurationTotal += local.elapsedMilliseconds();
-		local.start();
+		
 		VoxInstance newInstance{rotatedModelSize, instanceOffset, rawVoxelData, measurements};
 		newInstance.posInArray = i;
 		instances.push_back(newInstance);
-
+		
+		local.start();
 		generateSectors(newInstance);
+		local.stop();
+		measurements.sectorGenerationDuration += local.elapsedMilliseconds();
 
 		totalSizeX += currModel->size_x;
 		totalSizeY += currModel->size_y;
 		totalSizeZ += currModel->size_z;
     }
-
+	float64 curr = timer.elapsedMilliseconds();
 	nodes.resize(1);
 	TreeNode root = generateTreeInstance(*this, biggestLevelSize, ivec3(0));
 	nodes[0] = root;
+	measurements.treeGenerationDuration += timer.elapsedMilliseconds() - curr;
+
 
 	std::cout << "Average instance size: " << totalSizeX / numInstances << " " << totalSizeY / numInstances << " " << totalSizeZ / numInstances << "\n" << std::endl;
 
@@ -205,9 +210,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms\n" << std::endl;
 	std::cout << " Preprocessing: " << measurements.preprocessingDuration << "ms (Average: " << measurements.preprocessingDuration / numInstances << "ms)" << std::endl;
 	std::cout << " Sector generation: " << measurements.sectorGenerationDuration << "ms (Average: " << measurements.sectorGenerationDuration / numInstances << "ms)" << std::endl;
-	std::cout << " Tree generation: " << measurements.treeGenerationDuration << "ms (Average: " << measurements.treeGenerationDuration / numInstances << "ms)" << std::endl;
-
-	std::cout << "------------------------------------" << std::endl;
+	std::cout << "------------------------------------\n" << std::endl;
+	std::cout << " Tree generation: " << measurements.treeGenerationDuration << "ms\n" << std::endl;
 
 	glCreateBuffers(1, &treeNodesBuffer);
 	glNamedBufferStorage(treeNodesBuffer, sizeof(TreeNode) * nodes.size(), nodes.data(), GL_DYNAMIC_STORAGE_BIT);

@@ -1,7 +1,7 @@
 #include "application.h"
 
-const uint32 WIDTH = 1600;
-const uint32 HEIGHT = 900;
+const uint32 WIDTH = 2560;
+const uint32 HEIGHT = 1440;
 
 const char* WINDOW_NAME = "Voxel Ray Marching";
 const char* VOX_FILE_PATH = "../res/castle.vox";
@@ -156,8 +156,6 @@ void Application::renderImGuiFrame()
     }
     ImGui::Separator();
     ImGui::Text("Instance Count: %1u", renderer.scene.numInstances);
-    ImGui::Text("Sector Count (estimated): %1u", renderer.scene.measurements.totalSectorCount);
-    ImGui::Text("Brick Count (estimated): %1u", renderer.scene.measurements.totalBrickCount);
     ImGui::Separator();
     ImGui::DragFloat3("Position", (float*)&renderer.cam.pos, 0.01f);
     ImGui::DragFloat("Movement Speed", (float*)&renderer.cam.movement_speed, 0.01, 0.0f, 0.0f, "%.1f");

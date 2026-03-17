@@ -16,7 +16,6 @@ VoxInstance::VoxInstance(const ivec3 rotatedModelSize, const vec3 worldOffset, u
 	occupiedBricks = brickUpper - brickLower;
 
 	timer.stop();
-	measurements.treeGenerationDuration += timer.elapsedMilliseconds();
 }
 
 const int32 VoxInstance::getPoolIndex(int32 bx, int32 by, int32 bz)
