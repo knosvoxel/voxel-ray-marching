@@ -153,6 +153,7 @@ HitInfo castRay(ivec3 worldOffset, vec3 rayPos, vec3 dir){
 
     vec3 invDir = 1.0 / -abs(dir);
 
+    // Entry calculation for normal retrieval at tree entry position
     vec3 tEntry = (vec3(1.0) - origin) * invDir;
     vec3 tExit = (vec3(2.0) - origin) * invDir;
     float tMin = max(max(min(tEntry.x, tExit.x), min(tEntry.y, tExit.y)), min(tEntry.z, tExit.z));
@@ -175,7 +176,7 @@ HitInfo castRay(ivec3 worldOffset, vec3 rayPos, vec3 dir){
     pos = clamp(pos, 1.0, 1.99999);
 
     uint stack[11]; // one idx per level
-    int scaleExp = 21;
+    int scaleExp = 21; // 21 into the float mantissa
     
     uint nodeIdx = 0; // root 
     TreeNode node = nodes[nodeIdx];
