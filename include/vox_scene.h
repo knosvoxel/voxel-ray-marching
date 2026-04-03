@@ -47,7 +47,7 @@ public:
 
 	std::vector<VoxInstance> instances;
 
-	uint32_t modelArraySize;
+	uint32_t numInstances;
 
 private:
 	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize);

@@ -16,6 +16,8 @@ uint32 dispatchSizeY = 0;
 
 Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, bool* appMouseCaught, bool* appMouseMoved, uint32 screenSizeX, uint32 screenSizeY) : window(appWindow), deltaTime(appDelta), mouseCaught(appMouseCaught), mouseMoved(appMouseMoved), sizeX(screenSizeX), sizeY(screenSizeY)
 {
+    Timer timer;
+    timer.start();
     // texture generation with DSA
     glCreateTextures(GL_TEXTURE_2D, 1, &screenTexture);
 
@@ -27,11 +29,11 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     glTextureStorage2D(screenTexture, 1, GL_RGBA32F, sizeX, sizeY);
     glBindImageTexture(0, screenTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-    cam = Camera(sizeX, sizeY, CAM_POS, VUP, FOV, YAW, PITCH);
-    cam.init();
-
     screenShader = Shader("../shaders/screenShader.vert", "../shaders/screenShader.frag");
     renderCompute = ComputeShader("../shaders/renderShader.comp");
+
+    cam = Camera(sizeX, sizeY, CAM_POS, VUP, FOV, YAW, PITCH);
+    cam.init();
 
     dispatchSizeX = (sizeX + 15) / 16;
     dispatchSizeY = (sizeY + 15) / 16;
@@ -41,6 +43,9 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     // empty VAO
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
+
+    timer.stop();
+    std::cout << "Shader, screen texture & camera load overhead total: " << timer.elapsedSeconds() << " s\n" << std::endl;
 
     scene.load(path, renderCompute);
 }

@@ -24,19 +24,50 @@ static glm::mat4 ogtTransformToGLM(const ogt_vox_scene* scene, const ogt_vox_ins
 
 void VoxScene::load(const char* path, ComputeShader& cam_compute)
 {
+	Timer timer, timerTotal;
+	timer.start();
+	timerTotal.start();
     const ogt_vox_scene* voxScene = load_vox_scene(path);
 
     modelData.resize(voxScene->num_instances);
 
-    uint32 totalVoxelCount = 0;
-	float64 rotationDurationTotal = 0;
+    numInstances = voxScene->num_instances;
+    cam_compute.setInt("model_array_size", numInstances);
 
-    modelArraySize = voxScene->num_instances;
-    cam_compute.setInt("model_array_size", modelArraySize);
+	// load palette into texture
+	ogt_vox_palette ogt_palette = voxScene->palette;
 
-    for (size_t i = 0; i < voxScene->num_instances; i++)
+	// texture generation with DSA
+	glCreateTextures(GL_TEXTURE_2D, 1, &palette);
+
+	glTextureParameteri(palette, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTextureParameteri(palette, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTextureParameteri(palette, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(palette, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	glTextureStorage2D(palette, 1, GL_RGBA8, 256, 1);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glTextureSubImage2D(palette, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, ogt_palette.color);
+	glBindTextureUnit(4, palette);
+
+	timer.stop();
+	std::cout << "Scene load & palette creation: " << timer.elapsedMilliseconds() << "ms" << std::endl;
+	std::cout << numInstances << " instance(s)\n" << std::endl;
+
+	timer.start();
+
+	uint32 totalVoxelCount = 0;
+	float64 rotationDurationTotal = 0.0;
+	float64 transformCalculationTotal = 0.0;
+
+	float64 totalDataPreparations = 0.0;
+	float64 dataPreparationMin = DBL_MAX;
+	float64 dataPreparationMax = 0.0;
+
+    for (size_t i = 0; i < numInstances; i++)
     {
 		Timer local;
+		local.start();
         const ogt_vox_instance* currInstance = &voxScene->instances[i];
         //if (currInstance->hidden == true || voxScene->layers[currInstance->layer_index].hidden == true) continue;
 
@@ -45,12 +76,16 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		ogt_vox_transform transform = ogt_vox_sample_instance_transform(currInstance, 0, voxScene);
 		vec4 instanceOffset = vec4(transform.m30, transform.m31, transform.m32, 0);
 
-		ivec3 rotatedModelSize;
+		local.stop();
+		transformCalculationTotal += local.elapsedMilliseconds();
 
 		local.start();
-        uint8* currModelVoxelsRotated = createRotatedModelCPU(voxScene, i, rotatedModelSize);
+		ivec3 rotatedModelSize;
+		uint8* currModelVoxelsRotated = createRotatedModelCPU(voxScene, i, rotatedModelSize);
+		local.stop();
 		rotationDurationTotal += local.elapsedMilliseconds();
 
+		local.start();
         // voxel model data
         InstanceData currModelData;
 		currModelData.bit_offset = totalVoxelCount; // in loop current total count is equal to current offset
@@ -68,10 +103,25 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		instances.back().modelSize = currModelSize;
 		instances.back().voxelData = currModelVoxelsRotated;
 
+		local.stop();
+		totalDataPreparations += local.elapsedMilliseconds();
+
+		if (local.elapsedMilliseconds() > dataPreparationMax) dataPreparationMax = local.elapsedMilliseconds();
+		if (local.elapsedMilliseconds() < dataPreparationMin) dataPreparationMin = local.elapsedMilliseconds();
+
 		totalVoxelCount += currVoxelCount;
     }
 
-	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms" << std::endl;
+	timer.stop();
+
+	std::cout << "Meshing Loop Duration total: " << timer.elapsedMilliseconds() << "ms" << std::endl;
+	std::cout << " Transform calculation total: " << transformCalculationTotal << "ms (Average per instance: " << transformCalculationTotal / numInstances << "ms)" << std::endl;
+	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms (Average per instance: " << rotationDurationTotal / numInstances << "ms)" << std::endl;
+	std::cout << " Instance data preparation total: " << totalDataPreparations << "ms (Average per instance: " << totalDataPreparations / numInstances << "ms)" << std::endl;
+	std::cout << " Data preparation min: " << dataPreparationMin << "ms" << std::endl;
+	std::cout << " Data preparation max: " << dataPreparationMax << "ms" << std::endl;
+
+	timer.start();
 
     glCreateBuffers(1, &voxelDataBuffer);
     glNamedBufferStorage(voxelDataBuffer, sizeof(uint8_t) * totalVoxelCount, voxelData.data(), GL_DYNAMIC_STORAGE_BIT);
@@ -81,23 +131,15 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
     glNamedBufferStorage(modelDataBuffer, sizeof(InstanceData) * modelData.size(), modelData.data(), GL_DYNAMIC_STORAGE_BIT);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, modelDataBuffer);
 
-    // load palette into texture
-    ogt_vox_palette ogt_palette = voxScene->palette;
+	timer.stop();
 
-    // texture generation with DSA
-    glCreateTextures(GL_TEXTURE_2D, 1, &palette);
-
-    glTextureParameteri(palette, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(palette, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(palette, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTextureParameteri(palette, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    glTextureStorage2D(palette, 1, GL_RGBA8, 256, 1);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTextureSubImage2D(palette, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, ogt_palette.color);
-    glBindTextureUnit(4, palette);
+	std::cout << "\nBuffer creation and data upload: " << timer.elapsedMilliseconds() << "ms" << std::endl;
 
     ogt_vox_destroy_scene(voxScene);
+
+	timerTotal.stop();
+
+	std::cout << "\nScene creation total: " << timerTotal.elapsedSeconds() << " s" << std::endl;
 }
 
 void VoxScene::cleanup()
