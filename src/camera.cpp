@@ -1,6 +1,8 @@
 #include "camera.h"
 
 void Camera::process_input(GLFWwindow* window, float32 delta) {
+	if (isFollowingPath) return;
+
 	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
 		process_keyboard(FORWARD, delta);
 	}

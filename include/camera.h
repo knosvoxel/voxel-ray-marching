@@ -38,6 +38,11 @@ public:
 	float32 movement_speed = 100.0;
 	float32 mouse_sensitivity = 0.2;
 
+	float32 yaw = -90.0;
+	float32 pitch = 0.0;
+
+	bool isFollowingPath = false;
+
 	Camera() = default;
 
 	Camera(uint32_t width, uint32_t height, glm::vec3 pos, glm::vec3 up, float32 fov, float32 yaw, float32 pitch) : image_width(width), image_height(height), fov(fov), pos(pos), world_up(up), yaw(yaw), pitch(pitch) {};
@@ -55,9 +60,6 @@ private:
 	float32 aspect_ratio;
 	float32 pixel_delta_u;
 	float32 pixel_delta_v;
-
-	float32 yaw = -90.0;
-	float32 pitch = 0.0;
 
 	vec3 pixel00_loc;
 	vec3 right, up, front;

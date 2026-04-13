@@ -59,11 +59,11 @@ void Renderer::renderFrame()
             xoffset = 0.0;
             yoffset = 0.0;
         }
-
-        cam.update_data();
     }
 
     *mouseMoved = false;
+    
+    cam.update_data();
 
     renderCompute.use();
 
