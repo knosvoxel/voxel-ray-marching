@@ -4,7 +4,7 @@ const uint32 WIDTH = 1600;
 const uint32 HEIGHT = 900;
 
 const char* WINDOW_NAME = "Voxel Ray Marching";
-const char* VOX_FILE_PATH = "../res/castle.vox";
+const char* VOX_FILE_PATH = "../../res/castle.vox";
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 void mouseCallback(GLFWwindow* window, double xposIn, double yposIn);
@@ -127,6 +127,8 @@ void Application::mainLoop()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+        updateCameraPath(deltaTime);
+
         glClearColor(0.20f, 0.20f, 0.20f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -159,10 +161,123 @@ void Application::renderImGuiFrame()
     ImGui::Separator();
     ImGui::DragFloat3("Position", (float*)&renderer.cam.pos, 0.01f);
     ImGui::DragFloat("Movement Speed", (float*)&renderer.cam.movement_speed, 0.01, 0.0f, 0.0f, "%.1f");
+    ImGui::Separator();
+    ImGui::Text("Camera Paths");
+    ImGui::Text("Path File");
+    ImGui::InputText("##pathfile", cameraPathFileName, sizeof(cameraPathFileName));
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) savePaths(cameraPaths, cameraPathFileName);
+    ImGui::SameLine();
+    if (ImGui::Button("Load")) loadPaths(cameraPaths, cameraPathFileName);
+    ImGui::DragFloat("Path Speed", &cameraPaths[activePathIdx >= 0 ? activePathIdx : 0].speed, 1.0f, 1.0f, 2000.0f);
+
+    for (int i = 0; i < 10; i++)
+    {
+        bool isPlaying = (activePathIdx == i);
+
+        if (isPlaying)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
+
+        ImGui::Text("Track %d: %2d keyframes", i, (int)cameraPaths[i].keyframes.size());
+
+        if (isPlaying)
+            ImGui::PopStyleColor();
+
+        ImGui::SameLine();
+
+        bool hasEnoughFrames = cameraPaths[i].keyframes.size() >= 2;
+        if (isPlaying)
+        {
+            if (ImGui::SmallButton(("Stop##" + std::to_string(i)).c_str()))
+            {
+                cameraPaths[activePathIdx].active = false;
+                cameraPaths[activePathIdx].currentIndex = 0;
+                activePathIdx = -1;
+            }
+        }
+        else
+        {
+            if (!hasEnoughFrames)
+                ImGui::BeginDisabled();
+
+            if (ImGui::SmallButton(("Play##" + std::to_string(i)).c_str()))
+            {
+                cameraPaths[i].active = true;
+                cameraPaths[i].currentIndex = 0;
+                activePathIdx = i;
+                renderer.cam.pos = cameraPaths[i].keyframes[0].pos;
+                renderer.cam.yaw = cameraPaths[i].keyframes[0].yaw;
+                renderer.cam.pitch = cameraPaths[i].keyframes[0].pitch;
+            }
+
+            if (!hasEnoughFrames)
+                ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton(("+ Frame##" + std::to_string(i)).c_str()))
+        {
+            CameraKeyframe keyframe;
+            keyframe.pos = renderer.cam.pos;
+            keyframe.yaw = renderer.cam.yaw;
+            keyframe.pitch = renderer.cam.pitch;
+            cameraPaths[i].keyframes.push_back(keyframe);
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton(("Clear##" + std::to_string(i)).c_str()))
+            cameraPaths[i] = CameraPath{};
+    }
     ImGui::End();
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+void Application::updateCameraPath(float32 delta)
+{
+    renderer.cam.isFollowingPath = (activePathIdx >= 0);
+
+    if (activePathIdx < 0) 
+        return;
+
+    CameraPath& path = cameraPaths[activePathIdx];
+    if (!path.active) return;
+
+    int32 nextIdx = path.currentIndex + 1;
+    if (nextIdx >= (int32)path.keyframes.size())
+    {
+        path.active = false;
+        activePathIdx = -1;
+        renderer.cam.isFollowingPath = false;
+        return;
+    }
+
+    const CameraKeyframe& target = path.keyframes[nextIdx];
+
+    vec3 toTarget = target.pos - renderer.cam.pos;
+    float32 dist = length(toTarget);
+    float32 moveDist = path.speed * delta;
+
+    if (dist <= moveDist)
+    {
+        renderer.cam.pos = target.pos;
+        path.currentIndex = nextIdx;
+    }
+    else
+    {
+        renderer.cam.pos += normalize(toTarget) * moveDist;
+    }
+
+    float32 t = clamp(moveDist / (dist + 0.0001f), 0.0f, 1.0f);
+
+    float32 yawDiff = target.yaw - renderer.cam.yaw;
+    while (yawDiff > 180.0f) yawDiff -= 360.0f;
+    while (yawDiff < -180.0f) yawDiff = 360.0f;
+    renderer.cam.yaw += yawDiff * t;
+    renderer.cam.pitch += (target.pitch - renderer.cam.pitch) * t;
 }
 
 void Application::cleanup()
@@ -226,20 +341,67 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+    
+    if (action == GLFW_PRESS)
     {
-        if (app->mouseCaught)
+        if (key == GLFW_KEY_ESCAPE)
         {
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-            app->mouseCaught = false;
+            if (app->activePathIdx >= 0)
+            {
+                app->cameraPaths[app->activePathIdx].active = false;
+                app->cameraPaths[app->activePathIdx].currentIndex = 0;
+                app->activePathIdx = -1;
+                app->renderer.cam.isFollowingPath = false;
+                return;
+            }
+
+            if (app->mouseCaught)
+            {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                app->mouseCaught = false;
+            }
+            else
+            {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                app->mouseCaught = true;
+                app->firstMouse = true;
+            }
         }
-        else
+
+        if (key >= GLFW_KEY_0 && key <= GLFW_KEY_9)
         {
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            app->mouseCaught = true;
-            app->firstMouse = true;
+            int trackIndex = key - GLFW_KEY_0;
+
+            if (mods & GLFW_MOD_SHIFT)
+            {
+                CameraKeyframe kf;
+                kf.pos = app->renderer.cam.pos;
+                kf.yaw = app->renderer.cam.yaw;
+                kf.pitch = app->renderer.cam.pitch;
+                app->cameraPaths[trackIndex].keyframes.push_back(kf);
+                std::cout << "Track " << trackIndex << ": recorded keyframe "
+                    << app->cameraPaths[trackIndex].keyframes.size() << std::endl;
+            }
+            else
+            {
+                CameraPath& path = app->cameraPaths[trackIndex];
+                if (path.keyframes.size() >= 2)
+                {
+                    path.active = true;
+                    path.currentIndex = 0;
+                    app->activePathIdx = trackIndex;
+                    app->renderer.cam.pos = path.keyframes[0].pos;
+                    app->renderer.cam.yaw = path.keyframes[0].yaw;
+                    app->renderer.cam.pitch = path.keyframes[0].pitch;
+                    app->renderer.cam.isFollowingPath = true;
+                }
+            }
         }
+
+        if (key == GLFW_KEY_F5)
+            savePaths(app->cameraPaths, app->cameraPathFileName);
+        if (key == GLFW_KEY_F9)
+            loadPaths(app->cameraPaths, app->cameraPathFileName);
     }
 }
 

@@ -29,8 +29,8 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     glTextureStorage2D(screenTexture, 1, GL_RGBA32F, sizeX, sizeY);
     glBindImageTexture(0, screenTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-    screenShader = Shader("../shaders/screenShader.vert", "../shaders/screenShader.frag");
-    renderCompute = ComputeShader("../shaders/renderShader.comp");
+    screenShader = Shader("../../shaders/screenShader.vert", "../../shaders/screenShader.frag");
+    renderCompute = ComputeShader("../../shaders/renderShader.comp");
 
     cam = Camera(sizeX, sizeY, CAM_POS, VUP, FOV, YAW, PITCH);
     cam.init();
@@ -61,11 +61,11 @@ void Renderer::renderFrame()
             xoffset = 0.0;
             yoffset = 0.0;
         }
-
-        cam.update_data();
     }
 
     *mouseMoved = false;
+    
+    cam.update_data();
 
     renderCompute.use();
     renderCompute.setInt("MAX_STEPS", MAX_STEPS);

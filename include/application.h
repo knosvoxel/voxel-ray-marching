@@ -16,6 +16,7 @@
 
 #include "timer.h"
 #include "renderer.h"
+#include "camera_path.h"
 
 using namespace glm;
 
@@ -30,6 +31,10 @@ public:
 	bool mouseMoved = false;
 	bool firstMouse = true;
 
+	CameraPath cameraPaths[10];
+	int32 activePathIdx = -1;
+	char cameraPathFileName[256] = "../../res/camera_paths.json";
+
 	Renderer renderer;
 private:
 	void init();
@@ -39,6 +44,8 @@ private:
 
 	void mainLoop();
 	void renderImGuiFrame();
+
+	void updateCameraPath(float32 delta);
 
 	void cleanup();
 
