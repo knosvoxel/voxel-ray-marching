@@ -30,8 +30,8 @@ Renderer::Renderer(GLFWwindow* appWindow, const char* path, float32* appDelta, b
     cam = Camera(sizeX, sizeY, CAM_POS, VUP, FOV, YAW, PITCH);
     cam.init();
 
-    screenShader = Shader("../shaders/screenShader.vert", "../shaders/screenShader.frag");
-    renderCompute = ComputeShader("../shaders/renderShader.comp");
+    screenShader = Shader("../../shaders/screenShader.vert", "../../shaders/screenShader.frag");
+    renderCompute = ComputeShader("../../shaders/renderShader.comp");
 
     dispatchSizeX = (sizeX + 15) / 16;
     dispatchSizeY = (sizeY + 15) / 16;
