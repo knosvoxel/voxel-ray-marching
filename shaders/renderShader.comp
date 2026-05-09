@@ -269,11 +269,8 @@ void main() {
     vec3 sphereCenter = vec3(0.0);   // world origin in voxel space
     float sphereRadius = 1.0;        // radius in voxels
 
-    // Transform ray into voxel world space (same as hit.pos)
-    // castRay maps voxel coords so that worldOffset/levelSize = offset
-    vec3 worldOffsetF = vec3(1024);
-    vec3 ro = rayPos * levelSize + worldOffsetF; // ray origin in voxel space... 
-    // ...actually hit.pos is already in voxel space, so keep it simple:
+    vec3 worldOffset = vec3(1024);
+    vec3 ro = rayPos * levelSize + worldOffset;
     float tSphere = intersectSphere(rayPos, rayDir, sphereCenter, sphereRadius);
 
     vec3 albedo;
