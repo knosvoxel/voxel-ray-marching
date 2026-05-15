@@ -6,6 +6,8 @@ const uint32 HEIGHT = 1440;
 float32 dummyDelta = 0.0;
 bool dummyCaught = false, dummyMoved = false;
 
+float lastFrameTime = 0.0;
+
 static std::string fmtDouble(double v, int decimals = 4)
 {
     std::ostringstream oss;
@@ -218,6 +220,9 @@ void BenchmarkRunner::runFramePhase()
 
     while (!glfwWindowShouldClose(app.window))
     {
+        double currentLoopTime = loopTimer.elapsedMilliseconds();
+        float dt = static_cast<float>((currentLoopTime - lastFrameTime) / 1000.0);
+        lastFrameTime = currentLoopTime;
         if (loopTimer.elapsedSeconds() >= m_cfg.frameDurationSec) break;
 
         frameTimer.start();
@@ -231,7 +236,7 @@ void BenchmarkRunner::runFramePhase()
 
         // Camera path update (scenario 3 only)
         if (m_cfg.scenario == BenchScenario::Path)
-            app.updateCameraPath(static_cast<float>(frameTimer.elapsedSeconds()));
+            app.updateCameraPath(dt);
 
         glClearColor(0.20f, 0.20f, 0.20f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
