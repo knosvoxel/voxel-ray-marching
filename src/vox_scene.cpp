@@ -115,7 +115,13 @@ static TreeNode generateTreeInstance(VoxScene& scene, int32 levelSize, ivec3 pos
 
 void VoxScene::load(const char* path, ComputeShader& cam_compute)
 {
-	Timer timer;
+	instances.clear();
+	sectors.clear();
+	nodes.clear();
+	leafs.clear();
+
+	Timer timer, timerTotal;
+	timerTotal.start();
 	timer.start();
 
     const ogt_vox_scene* voxScene = load_vox_scene(path);
@@ -124,7 +130,12 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		std::cerr << "Failed to load vox file at path: " << path << std::endl;
 		exit(-1);
 	}
+
+	timer.stop();
 	std::cout << "Scene load done: " << timer.elapsedSeconds() << " s" << std::endl;
+	timings.sceneFileLoadMs = timer.elapsedMilliseconds();
+
+	timer.start();
 
 	// load palette into texture
 	ogt_vox_palette ogt_palette = voxScene->palette;
@@ -141,6 +152,9 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTextureSubImage2D(palette, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, ogt_palette.color);
 	glBindTextureUnit(4, palette);
+
+	timer.stop();
+	timings.paletteOverheadMs = timer.elapsedMilliseconds();
 
 	numInstances = voxScene->num_instances;
 	instances.reserve(numInstances);
@@ -166,6 +180,7 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 
 	float64 rotationDurationTotal = 0;
 
+	timer.start();
     for (int32 i = 0; i < numInstances; i++)
     {
 		Timer local;
@@ -186,7 +201,7 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		VoxInstance newInstance{rotatedModelSize, instanceOffset, rawVoxelData, measurements};
 		newInstance.posInArray = i;
 		instances.push_back(newInstance);
-		
+
 		local.start();
 		generateSectors(newInstance);
 		local.stop();
@@ -196,11 +211,16 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 		totalSizeY += currModel->size_y;
 		totalSizeZ += currModel->size_z;
     }
-	float64 curr = timer.elapsedMilliseconds();
+	timer.stop();
+	timings.sectorGenerationLoopMs = timer.elapsedMilliseconds();
+	timer.start();
+
 	nodes.resize(1);
 	TreeNode root = generateTreeInstance(*this, biggestLevelSize, ivec3(0));
 	nodes[0] = root;
-	measurements.treeGenerationDuration += timer.elapsedMilliseconds() - curr;
+	timer.stop();
+	measurements.treeGenerationDuration += timer.elapsedMilliseconds();
+	timings.treeGenerationMs = timer.elapsedMilliseconds();
 
 
 	std::cout << "Average instance size: " << totalSizeX / numInstances << " " << totalSizeY / numInstances << " " << totalSizeZ / numInstances << "\n" << std::endl;
@@ -213,6 +233,11 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	std::cout << "------------------------------------\n" << std::endl;
 	std::cout << " Tree generation: " << measurements.treeGenerationDuration << "ms\n" << std::endl;
 
+	timings.rotationTotalMs = rotationDurationTotal;
+	timings.sectorGenerationTotalMs = measurements.sectorGenerationDuration;
+	timings.sectorGenerationAvgMs = measurements.sectorGenerationDuration / numInstances;
+
+	timer.start();
 	glCreateBuffers(1, &treeNodesBuffer);
 	glNamedBufferStorage(treeNodesBuffer, sizeof(TreeNode) * nodes.size(), nodes.data(), GL_DYNAMIC_STORAGE_BIT);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, treeNodesBuffer);
@@ -221,10 +246,13 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	glNamedBufferStorage(leafsBuffer, sizeof(uint8) * leafs.size(), leafs.data(), GL_DYNAMIC_STORAGE_BIT);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, leafsBuffer);
 
+	timer.stop();
+	timings.sceneBufferBuildMs = timer.elapsedMilliseconds();
+
     ogt_vox_destroy_scene(voxScene);
 
-	timer.stop();
-	std::cout << "Scene creation total: " << timer.elapsedSeconds() << " s" << std::endl;
+	timerTotal.stop();
+	std::cout << "Scene creation total: " << timerTotal.elapsedSeconds() << " s" << std::endl;
 }
 
 void VoxScene::cleanup()
@@ -233,10 +261,23 @@ void VoxScene::cleanup()
 	glDeleteBuffers(1, &leafsBuffer);
 	glDeleteTextures(1, &palette);
 
-	//for (Sector* sector : sectors.)
-	//{
-
-	//}
+	for (auto& pair : sectors) {
+		for (int i = 0; i < 64; i++) {
+			if (pair.second->bricks[i]) delete pair.second->bricks[i];
+		}
+		delete pair.second;
+	}
+	sectors.clear();
+	
+	for (auto& instance : instances) {
+		if (instance.rawVoxelData) {
+			free(instance.rawVoxelData);
+			instance.rawVoxelData = nullptr;
+		}
+	}
+	instances.clear();
+	nodes.clear();
+	leafs.clear();
 }
 
 const int32 VoxScene::getSectorIndex(int32 sx, int32 sy, int32 sz)

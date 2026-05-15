@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -24,6 +25,13 @@ class Application {
 public:
 	void run();
 
+	void initWindow();
+	void initOpenGL();
+
+	void updateCameraPath(float32 delta);
+
+	void cleanupWindow();
+
 	float32 lastX = 0.0f, lastY = 0.0f, deltaTime = 0.0f, lastFrame = 0.0f;
 	uint32 sizeX = 0.0, sizeY = 0.0;
 
@@ -36,20 +44,20 @@ public:
 	char cameraPathFileName[256] = "../../res/camera_paths.json";
 
 	Renderer renderer;
+
+	GLFWwindow* window;
+
+	bool benchmarkMode = false;
+	std::string overrideScenePath;
 private:
 	void init();
-	void initWindow();
-	void initOpenGL();
+
 	void initImgui();
 
 	void mainLoop();
 	void renderImGuiFrame();
 
-	void updateCameraPath(float32 delta);
-
 	void cleanup();
-
-	GLFWwindow* window;
 
 	bool enableVSync = false;
 	bool enableWireframe = false;

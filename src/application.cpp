@@ -1,7 +1,7 @@
 #include "application.h"
 
-const uint32 WIDTH = 1600;
-const uint32 HEIGHT = 900;
+const uint32 WIDTH = 2560;
+const uint32 HEIGHT = 1440;
 
 const char* WINDOW_NAME = "Voxel Ray Marching";
 const char* VOX_FILE_PATH = "../../res/castle.vox";
@@ -28,12 +28,15 @@ void Application::init()
 
     initWindow();
     initOpenGL();
-    initImgui();
+
+    if (!benchmarkMode)
+        initImgui();
 
     lastX = static_cast<float>(sizeX) / 2.0f;
     lastY = static_cast<float>(sizeY) / 2.0f;
 
-    renderer = Renderer(window, VOX_FILE_PATH, &deltaTime, &mouseCaught, &mouseMoved, WIDTH, HEIGHT);
+    const char* scenePath = overrideScenePath.empty() ? VOX_FILE_PATH : overrideScenePath.c_str();
+    renderer = Renderer(window, scenePath, &deltaTime, &mouseCaught, &mouseMoved, WIDTH, HEIGHT);
 
     timer.stop();
     std::cout << "init total: " << timer.elapsedSeconds() << " s" << std::endl;
@@ -64,7 +67,8 @@ void Application::initWindow()
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetKeyCallback(window, keyboardCallback);
 
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    if (!benchmarkMode)
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     if (!enableVSync) {
         glfwSwapInterval(0);
@@ -280,13 +284,24 @@ void Application::updateCameraPath(float32 delta)
     renderer.cam.pitch += (target.pitch - renderer.cam.pitch) * t;
 }
 
+void Application::cleanupWindow()
+{
+    if (!benchmarkMode) {
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+    }
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    window = nullptr;
+}
+
 void Application::cleanup()
 {
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
+    renderer.cleanup();
 
-    glfwTerminate();
+    cleanupWindow();
 }
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height)

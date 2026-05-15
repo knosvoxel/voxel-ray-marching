@@ -79,9 +79,9 @@ void Renderer::renderFrame()
 
 void Renderer::cleanup()
 {
-    //scene.cleanup();
+    scene.cleanup();
     cam.cleanup();
 
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteTextures(1, &screenTexture);
+    if (VAO) glDeleteVertexArrays(1, &VAO);
+    if (screenTexture) glDeleteTextures(1, &screenTexture);
 }

@@ -33,6 +33,18 @@ typedef struct InstanceComputeData {
 	//uint32 biggestLevelSize;
 };
 
+struct SceneTimings
+{
+	float64 sceneFileLoadMs = 0;
+	float64 paletteOverheadMs = 0;
+	float64 sectorGenerationLoopMs = 0;
+	float64 rotationTotalMs = 0;
+	float64 sectorGenerationTotalMs = 0;
+	float64 sectorGenerationAvgMs = 0;
+	float64 treeGenerationMs = 0;
+	float64 sceneBufferBuildMs = 0;
+};
+
 class VoxScene {
 public:
 	VoxScene() {};
@@ -48,6 +60,7 @@ public:
 	std::vector<VoxInstance> instances;
 
 	MeasurementData measurements;
+	SceneTimings timings;
 	uint32 numInstances;
 
 	uint32 biggestLevelSize = 12;
