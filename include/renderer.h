@@ -30,12 +30,13 @@ public:
 	void init();
 	void renderFrame();
 
+	void cleanup();
+
 	Camera cam;
 	VoxScene scene;
 
 	float32 xoffset = 0.0, yoffset = 0.0;
 private:
-	void cleanup();
 
 	float32* deltaTime;
 	bool* mouseCaught;
@@ -44,9 +45,9 @@ private:
 	GLFWwindow* window;
 	uint32 sizeX, sizeY;
 
-	uint32 VAO;
+	uint32 VAO = 0;
 
-	uint32 screenTexture;
+	uint32 screenTexture = 0;
 	Shader screenShader;
 	ComputeShader renderCompute;
 };

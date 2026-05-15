@@ -33,6 +33,20 @@ typedef struct VoxInstance {
 	ivec3 modelSize;
 };
 
+struct SceneTimings
+{
+	float64 sceneFileLoadMs = 0;
+	float64 paletteOverheadMs = 0;
+	float64 dataPreparationLoopMs = 0;
+	float64 transformCalculationTotalMs = 0;
+	float64 rotationTotalMs = 0;
+	float64 dataPreparationsTotalMs = 0;
+	float64 dataPreparationAvgUs = 0;
+	float64 dataPreparationMinUs = 0;
+	float64 dataPreparationMaxUs = 0;
+	float64 sceneBufferBuildMs = 0;
+};
+
 class VoxScene {
 public:
 	VoxScene() {};
@@ -48,6 +62,8 @@ public:
 	std::vector<VoxInstance> instances;
 
 	uint32_t numInstances;
+
+	SceneTimings timings;
 
 private:
 	uint8* createRotatedModelCPU(const ogt_vox_scene* scene, uint32 instanceIdx, ivec3& rotatedModelSize);

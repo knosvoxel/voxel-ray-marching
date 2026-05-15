@@ -28,12 +28,12 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	timer.start();
 	timerTotal.start();
     const ogt_vox_scene* voxScene = load_vox_scene(path);
+	timer.stop();
+	
+	std::cout << "Scene load: " << timer.elapsedMilliseconds() << "ms" << std::endl;
+	timings.sceneFileLoadMs = timer.elapsedMilliseconds();
 
-    modelData.resize(voxScene->num_instances);
-
-    numInstances = voxScene->num_instances;
-    cam_compute.setInt("model_array_size", numInstances);
-
+	timer.start();
 	// load palette into texture
 	ogt_vox_palette ogt_palette = voxScene->palette;
 
@@ -51,10 +51,14 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	glBindTextureUnit(4, palette);
 
 	timer.stop();
-	std::cout << "Scene load & palette creation: " << timer.elapsedMilliseconds() << "ms" << std::endl;
-	std::cout << numInstances << " instance(s)\n" << std::endl;
+	std::cout << "Palette creation: " << timer.elapsedMilliseconds() << "ms" << std::endl;
+	timings.paletteOverheadMs = timer.elapsedMilliseconds();
 
-	timer.start();
+	modelData.resize(voxScene->num_instances);
+
+	numInstances = voxScene->num_instances;
+	cam_compute.setInt("model_array_size", numInstances);
+	std::cout << numInstances << " instance(s)\n" << std::endl;
 
 	uint32 totalVoxelCount = 0;
 	float64 rotationDurationTotal = 0.0;
@@ -63,6 +67,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
 	float64 totalDataPreparations = 0.0;
 	float64 dataPreparationMin = DBL_MAX;
 	float64 dataPreparationMax = 0.0;
+
+	timer.start();
 
     for (size_t i = 0; i < numInstances; i++)
     {
@@ -113,13 +119,21 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
     }
 
 	timer.stop();
+	timings.dataPreparationLoopMs = timer.elapsedMilliseconds();
 
-	std::cout << "Meshing Loop Duration total: " << timer.elapsedMilliseconds() << "ms" << std::endl;
+	std::cout << "Data Preparation Loop Duration total: " << timer.elapsedMilliseconds() << "ms" << std::endl;
 	std::cout << " Transform calculation total: " << transformCalculationTotal << "ms (Average per instance: " << transformCalculationTotal / numInstances << "ms)" << std::endl;
 	std::cout << " Rotation duration total: " << rotationDurationTotal << "ms (Average per instance: " << rotationDurationTotal / numInstances << "ms)" << std::endl;
 	std::cout << " Instance data preparation total: " << totalDataPreparations << "ms (Average per instance: " << totalDataPreparations / numInstances << "ms)" << std::endl;
 	std::cout << " Data preparation min: " << dataPreparationMin << "ms" << std::endl;
 	std::cout << " Data preparation max: " << dataPreparationMax << "ms" << std::endl;
+
+	timings.transformCalculationTotalMs = transformCalculationTotal;
+	timings.rotationTotalMs = rotationDurationTotal;
+	timings.dataPreparationsTotalMs = totalDataPreparations;
+	timings.dataPreparationAvgUs = totalDataPreparations / numInstances;
+	timings.dataPreparationMinUs = dataPreparationMin;
+	timings.dataPreparationMaxUs = dataPreparationMax;
 
 	timer.start();
 
@@ -132,6 +146,8 @@ void VoxScene::load(const char* path, ComputeShader& cam_compute)
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, modelDataBuffer);
 
 	timer.stop();
+
+	timings.sceneBufferBuildMs = timer.elapsedMilliseconds();
 
 	std::cout << "\nBuffer creation and data upload: " << timer.elapsedMilliseconds() << "ms" << std::endl;
 

@@ -1,7 +1,7 @@
 #include "application.h"
 
-const uint32 WIDTH = 1600;
-const uint32 HEIGHT = 900;
+const uint32 WIDTH = 2560;
+const uint32 HEIGHT = 1440;
 
 const char* WINDOW_NAME = "Voxel Ray Marching";
 const char* VOX_FILE_PATH = "../../res/castle.vox";
@@ -28,12 +28,15 @@ void Application::init()
 
     initWindow();
     initOpenGL();
-    initImgui();
+
+    if (!benchmarkMode)
+        initImgui();
 
     lastX = static_cast<float>(sizeX) / 2.0f;
     lastY = static_cast<float>(sizeY) / 2.0f;
 
-    renderer = Renderer(window, VOX_FILE_PATH, &deltaTime, &mouseCaught, &mouseMoved, WIDTH, HEIGHT);
+    const char* scenePath = overrideScenePath.empty() ? VOX_FILE_PATH : overrideScenePath.c_str();
+    renderer = new Renderer(window, scenePath, &deltaTime, &mouseCaught, &mouseMoved, WIDTH, HEIGHT);
 
     timer.stop();
     std::cout << "init total: " << timer.elapsedSeconds() << " s" << std::endl;
@@ -64,7 +67,8 @@ void Application::initWindow()
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetKeyCallback(window, keyboardCallback);
 
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    if (!benchmarkMode)
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     if (!enableVSync) {
         glfwSwapInterval(0);
@@ -132,7 +136,7 @@ void Application::mainLoop()
         glClearColor(0.20f, 0.20f, 0.20f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        renderer.renderFrame();
+        renderer->renderFrame();
 
         renderImGuiFrame();
 
@@ -159,8 +163,8 @@ void Application::renderImGuiFrame()
         }
     }
     ImGui::Separator();
-    ImGui::DragFloat3("Position", (float*)&renderer.cam.pos, 0.01f);
-    ImGui::DragFloat("Movement Speed", (float*)&renderer.cam.movement_speed, 0.01, 0.0f, 0.0f, "%.1f");
+    ImGui::DragFloat3("Position", (float*)&renderer->cam.pos, 0.01f);
+    ImGui::DragFloat("Movement Speed", (float*)&renderer->cam.movement_speed, 0.01, 0.0f, 0.0f, "%.1f");
     ImGui::Separator();
     ImGui::Text("Camera Paths");
     ImGui::Text("Path File");
@@ -205,9 +209,9 @@ void Application::renderImGuiFrame()
                 cameraPaths[i].active = true;
                 cameraPaths[i].currentIndex = 0;
                 activePathIdx = i;
-                renderer.cam.pos = cameraPaths[i].keyframes[0].pos;
-                renderer.cam.yaw = cameraPaths[i].keyframes[0].yaw;
-                renderer.cam.pitch = cameraPaths[i].keyframes[0].pitch;
+                renderer->cam.pos = cameraPaths[i].keyframes[0].pos;
+                renderer->cam.yaw = cameraPaths[i].keyframes[0].yaw;
+                renderer->cam.pitch = cameraPaths[i].keyframes[0].pitch;
             }
 
             if (!hasEnoughFrames)
@@ -219,9 +223,9 @@ void Application::renderImGuiFrame()
         if (ImGui::SmallButton(("+ Frame##" + std::to_string(i)).c_str()))
         {
             CameraKeyframe keyframe;
-            keyframe.pos = renderer.cam.pos;
-            keyframe.yaw = renderer.cam.yaw;
-            keyframe.pitch = renderer.cam.pitch;
+            keyframe.pos = renderer->cam.pos;
+            keyframe.yaw = renderer->cam.yaw;
+            keyframe.pitch = renderer->cam.pitch;
             cameraPaths[i].keyframes.push_back(keyframe);
         }
 
@@ -238,7 +242,7 @@ void Application::renderImGuiFrame()
 
 void Application::updateCameraPath(float32 delta)
 {
-    renderer.cam.isFollowingPath = (activePathIdx >= 0);
+    renderer->cam.isFollowingPath = (activePathIdx >= 0);
 
     if (activePathIdx < 0) 
         return;
@@ -251,42 +255,56 @@ void Application::updateCameraPath(float32 delta)
     {
         path.active = false;
         activePathIdx = -1;
-        renderer.cam.isFollowingPath = false;
+        renderer->cam.isFollowingPath = false;
         return;
     }
 
     const CameraKeyframe& target = path.keyframes[nextIdx];
 
-    vec3 toTarget = target.pos - renderer.cam.pos;
+    vec3 toTarget = target.pos - renderer->cam.pos;
     float32 dist = length(toTarget);
     float32 moveDist = path.speed * delta;
 
     if (dist <= moveDist)
     {
-        renderer.cam.pos = target.pos;
+        renderer->cam.pos = target.pos;
         path.currentIndex = nextIdx;
     }
     else
     {
-        renderer.cam.pos += normalize(toTarget) * moveDist;
+        renderer->cam.pos += normalize(toTarget) * moveDist;
     }
 
     float32 t = clamp(moveDist / (dist + 0.0001f), 0.0f, 1.0f);
 
-    float32 yawDiff = target.yaw - renderer.cam.yaw;
+    float32 yawDiff = target.yaw - renderer->cam.yaw;
     while (yawDiff > 180.0f) yawDiff -= 360.0f;
     while (yawDiff < -180.0f) yawDiff = 360.0f;
-    renderer.cam.yaw += yawDiff * t;
-    renderer.cam.pitch += (target.pitch - renderer.cam.pitch) * t;
+    renderer->cam.yaw += yawDiff * t;
+    renderer->cam.pitch += (target.pitch - renderer->cam.pitch) * t;
+}
+
+void Application::cleanupWindow()
+{
+    delete renderer;
+
+    if (!benchmarkMode)
+    {
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+    }
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    window = nullptr;
 }
 
 void Application::cleanup()
 {
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
+    renderer->cleanup();
 
-    glfwTerminate();
+    cleanupWindow();
 }
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height)
@@ -311,16 +329,16 @@ void mouseCallback(GLFWwindow* window, double xposIn, double yposIn)
     {
         app->lastX = xpos;
         app->lastY = ypos;
-        app->renderer.xoffset = 0.0;
-        app->renderer.yoffset = 0.0;
+        app->renderer->xoffset = 0.0;
+        app->renderer->yoffset = 0.0;
         app->firstMouse = false;
     }
 
     if (app->lastX != xpos || app->lastY != ypos)
         app->mouseMoved = true;
 
-    app->renderer.xoffset = xpos - app->lastX;
-    app->renderer.yoffset = app->lastY - ypos;
+    app->renderer->xoffset = xpos - app->lastX;
+    app->renderer->yoffset = app->lastY - ypos;
 
     app->lastX = xpos;
     app->lastY = ypos;
@@ -351,7 +369,7 @@ void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int
                 app->cameraPaths[app->activePathIdx].active = false;
                 app->cameraPaths[app->activePathIdx].currentIndex = 0;
                 app->activePathIdx = -1;
-                app->renderer.cam.isFollowingPath = false;
+                app->renderer->cam.isFollowingPath = false;
                 return;
             }
 
@@ -375,9 +393,9 @@ void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int
             if (mods & GLFW_MOD_SHIFT)
             {
                 CameraKeyframe kf;
-                kf.pos = app->renderer.cam.pos;
-                kf.yaw = app->renderer.cam.yaw;
-                kf.pitch = app->renderer.cam.pitch;
+                kf.pos = app->renderer->cam.pos;
+                kf.yaw = app->renderer->cam.yaw;
+                kf.pitch = app->renderer->cam.pitch;
                 app->cameraPaths[trackIndex].keyframes.push_back(kf);
                 std::cout << "Track " << trackIndex << ": recorded keyframe "
                     << app->cameraPaths[trackIndex].keyframes.size() << std::endl;
@@ -390,10 +408,10 @@ void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int
                     path.active = true;
                     path.currentIndex = 0;
                     app->activePathIdx = trackIndex;
-                    app->renderer.cam.pos = path.keyframes[0].pos;
-                    app->renderer.cam.yaw = path.keyframes[0].yaw;
-                    app->renderer.cam.pitch = path.keyframes[0].pitch;
-                    app->renderer.cam.isFollowingPath = true;
+                    app->renderer->cam.pos = path.keyframes[0].pos;
+                    app->renderer->cam.yaw = path.keyframes[0].yaw;
+                    app->renderer->cam.pitch = path.keyframes[0].pitch;
+                    app->renderer->cam.isFollowingPath = true;
                 }
             }
         }
