@@ -10,5 +10,5 @@ Created for my Master's thesis with the title "Tradeoffs between different voxel
 - OpenMP
 
 ## Branches
-- *main*: Implementation of Sparse 64-trees based on "[A guide to fast voxel ray tracing using sparse 64-trees]"(https://dubiousconst282.github.io/2024/10/03/voxel-ray-tracing/) with support for loading MagicaVoxel's .vox file format
+- *main*: Implementation of Sparse 64-trees based on [A guide to fast voxel ray tracing using sparse 64-trees](https://dubiousconst282.github.io/2024/10/03/voxel-ray-tracing/) with support for loading MagicaVoxel's .vox file format
 - *basic-dda*: Basic DDA approach based on Amanatides & Woo's "*A Fast Voxel Traversal Algorithm for Ray Tracing*"
